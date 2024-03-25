@@ -8,12 +8,8 @@ on:
   pull_request:
   workflow_dispatch:
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  build:
+  clang-tidy:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
