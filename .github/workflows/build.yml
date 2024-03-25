@@ -8,7 +8,7 @@ on:
   pull_request:
   workflow_dispatch:
 
-concurrency: 
+concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
@@ -23,43 +23,32 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
-          fetch-depth: 0  # allows for tags access
+          fetch-depth: 0 # allows for tags access
 
       # LINUX
       - name: Install dependencies (Ubuntu)
         run: |
-            sudo apt-get update
-            sudo apt-get -y install cmake build-essential
+          sudo apt-get update
+          sudo apt-get -y install cmake build-essential
 
       - name: Build (Ubuntu)
         run: |
-            mkdir build
-            cd build
-            cmake \
-              -DCMAKE_EXPORT_COMPILE_COMMANDS=On \
-              ..
-            make "-j$(nproc)"
+          mkdir build
+          cd build
+          cmake \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=On \
+            ..
+          make "-j$(nproc)"
         shell: bash
 
       - name: clang-tidy review
-        uses: pajlada/clang-tidy-review@feat/split-up-review-and-post-workflows
-        if: github.event_name == 'pull_request'
-        id: review
+        timeout-minutes: 20
+        uses: Nerixyz/clang-tidy-review@34348503277f7b2a0cab43c77a418754ba3f0a18
         with:
           include: src/main.cpp
           build_dir: build
-          config_file: '.clang-tidy'
+          config_file: ".clang-tidy"
           split_workflow: true
 
-      - uses: actions/upload-artifact@v3
-        with:
-          name: clang-tidy-review
-          path: |
-            clang-tidy-review-output.json
-            clang-tidy-review-metadata.json
-
-      - name: Get total comments
-        run: |
-          echo "Total comments: ${total_comments}"
-        env:
-          total_comments: ${{ steps.review.outputs.total_comments }}
+      - name: clang-tidy-review upload
+        uses: Nerixyz/clang-tidy-review/upload@34348503277f7b2a0cab43c77a418754ba3f0a18
