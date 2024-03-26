@@ -17,3 +17,4 @@ jobs:
       - uses: Nerixyz/clang-tidy-review/post@4def0222015407e631c368e948e9040836b4ede0
         with:
           lgtm_comment_body: ""
+          exit_with_comments: false
