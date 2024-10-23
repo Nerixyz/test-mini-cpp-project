@@ -14,7 +14,8 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-      - uses: Nerixyz/clang-tidy-review/post@4def0222015407e631c368e948e9040836b4ede0
+      - uses: Nerixyz/clang-tidy-review/post@df29f6b11e037adf8bfe5e91f6608821c576fc87
         with:
           lgtm_comment_body: ""
-          exit_with_comments: false
+          num_comments_as_exitcode: false
+          annotations: false
