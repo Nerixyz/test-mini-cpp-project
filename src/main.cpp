@@ -9,7 +9,7 @@ int main(int argc, char **argv)
     auto test = new std::string("s");  // :)
     std::cout << "Hello xD\n";
     auto test2 = new std::string;       // :)
-    auto test3 = new std::string("d");  // :)
+    auto test3 = new std::string("e");  // :)
     auto test4 = new std::string;       // :)
     return 0;
 }
