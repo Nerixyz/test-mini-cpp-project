@@ -10,7 +10,7 @@ int main(int argc, char **argv)
     std::cout << "Hello xD\n";
     auto test2 = new std::string;  // :)
     auto test3 = new std::string;  // :)
-    auto test4 = new std::string;  // :)
+    auto test4 = new std::string("a");  // :)
     return 0;
 }
 
