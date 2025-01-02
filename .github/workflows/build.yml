@@ -39,7 +39,7 @@ jobs:
       - name: Build
         run: |
           cmake -B build -G Ninja
-          ninja -C build
+          ninja -C build -v
         shell: bash
 
       - name: Run (macOS/linux)
