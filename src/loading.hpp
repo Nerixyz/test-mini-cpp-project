@@ -27,11 +27,7 @@ inline void loadLibrary(const std::filesystem::path &path)
 
 #    include <dlfcn.h>
 
-#    ifdef __APPLE__
-#        define DYLIB_EXT ".so"
-#    else
-#        define DYLIB_EXT ".dylib"
-#    endif
+#    define DYLIB_EXT ".so"
 
 namespace loading {
 
