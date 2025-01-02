@@ -35,7 +35,7 @@ namespace loading {
 inline void loadLibrary(const std::filesystem::path &path)
 {
     std::cout << "loading " << path << '\n';
-    auto *addr = ::dlopen(path.c_str());
+    auto *addr = ::dlopen(path.c_str(), 0);
     if (addr == nullptr)
     {
         std::cout << "loading failed:" << ::dlerror() << '\n';
