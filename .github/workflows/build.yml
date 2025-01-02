@@ -33,7 +33,7 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install dependencies (macOS)
-        if: startsWith(runner.os, 'windows')
+        if: startsWith(runner.os, 'macos')
         run: brew install ninja
 
       - name: Build
