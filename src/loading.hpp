@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <iostream>
 
 #ifdef _MSC_VER
 
@@ -33,9 +34,11 @@ namespace loading {
 
 inline void loadLibrary(const std::filesystem::path &path)
 {
+    std::cout << "loading " << path << '\n';
     auto *addr = ::dlopen(path.c_str(), RTLD_GLOBAL);
     if (addr == nullptr)
     {
+        std::cout << "loading failed:" << ::dlerror() << '\n';
         exit(EXIT_FAILURE);
     }
 }
