@@ -45,13 +45,14 @@ jobs:
 
       - name: Run (macOS/linux)
         if: (!startsWith(runner.os, 'windows'))
-        run: ./build/executable
+        run: cd build && ./executable
 
       - name: Run (Windows)
         if: startsWith(runner.os, 'windows')
-        run: ./build/executable
+        run: cd build && ./executable.exe
 
       - name: clang-tidy review
+        if: startsWith(runner.os, 'ubuntu')
         timeout-minutes: 20
         uses: Nerixyz/clang-tidy-review@94e005676729057253668afe4b4fddeb3344e162
         with:
@@ -61,4 +62,5 @@ jobs:
           split_workflow: true
 
       - name: clang-tidy-review upload
+        if: startsWith(runner.os, 'ubuntu')
         uses: Nerixyz/clang-tidy-review/upload@94e005676729057253668afe4b4fddeb3344e162
