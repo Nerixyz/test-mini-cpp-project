@@ -13,7 +13,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -23,19 +23,32 @@ jobs:
 
       # LINUX
       - name: Install dependencies (Ubuntu)
+        if: startsWith(runner.os, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get -y install cmake build-essential
+          sudo apt-get -y install cmake build-essential ninja-build
 
-      - name: Build (Ubuntu)
+      - name: Setup MSVC (Windows)
+        if: startsWith(runner.os, 'windows')
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install dependencies (macOS)
+        if: startsWith(runner.os, 'windows')
+        run: brew install ninja
+
+      - name: Build
         run: |
-          mkdir build
-          cd build
-          cmake \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=On \
-            ..
-          make "-j$(nproc)"
+          cmake -B build -G Ninja
+          ninja -c build
         shell: bash
+
+      - name: Run (macOS/linux)
+        if: (!startsWith(runner.os, 'windows'))
+        run: ./build/executable
+
+      - name: Run (Windows)
+        if: startsWith(runner.os, 'windows')
+        run: ./build/executable
 
       - name: clang-tidy review
         timeout-minutes: 20
