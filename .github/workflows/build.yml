@@ -24,7 +24,7 @@ jobs:
 
       # LINUX
       - name: Install dependencies (Ubuntu)
-        if: startsWith(runner.os, 'ubuntu')
+        if: startsWith(runner.os, 'linux')
         run: |
           sudo apt-get update
           sudo apt-get -y install cmake build-essential ninja-build
