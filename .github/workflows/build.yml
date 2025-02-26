@@ -39,7 +39,7 @@ jobs:
 
       - name: clang-tidy review
         timeout-minutes: 20
-        uses: Nerixyz/clang-tidy-review@0af7d480ea341f1218d8437d189afe3f47317639
+        uses: Nerixyz/clang-tidy-review@1dfab6625b060ca09a6b964864f6f7b301988d4e
         with:
           include: src/main.cpp
           build_dir: build
@@ -47,4 +47,4 @@ jobs:
           split_workflow: true
 
       - name: clang-tidy-review upload
-        uses: Nerixyz/clang-tidy-review/upload@0af7d480ea341f1218d8437d189afe3f47317639
+        uses: Nerixyz/clang-tidy-review/upload@1dfab6625b060ca09a6b964864f6f7b301988d4e
