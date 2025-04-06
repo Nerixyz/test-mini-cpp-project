@@ -5,6 +5,8 @@ endif ()
 
 project(mini-cpp-project)
 
+set(CMAKE_CXX_STANDARD 20)
+
 find_package(Boost REQUIRED OPTIONAL_COMPONENTS headers)
 find_package(OpenSSL REQUIRED)
 
