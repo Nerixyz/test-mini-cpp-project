@@ -1,0 +1,6 @@
+{
+  "cmake.configureSettings": {
+    "CMAKE_TOOLCHAIN_FILE": "conan_toolchain.cmake"
+  },
+  "cmake.generator": "Ninja"
+}

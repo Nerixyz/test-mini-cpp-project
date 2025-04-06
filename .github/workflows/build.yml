@@ -8,43 +8,48 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  TWITCH_PUBSUB_SERVER_TAG: v1.0.10
+
+concurrency:
+  group: test-macos-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   clang-tidy:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [macos-latest]
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0 # allows for tags access
 
-      # LINUX
-      - name: Install dependencies (Ubuntu)
+      - run: brew install openssl cmake boost
+      - name: Build
         run: |
-          sudo apt-get update
-          sudo apt-get -y install cmake build-essential
-
-      - name: Build (Ubuntu)
-        run: |
-          mkdir build
-          cd build
+          mkdir build-test
+          cd build-test
           cmake \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=On \
-            ..
-          make "-j$(nproc)"
-        shell: bash
+              -DCMAKE_BUILD_TYPE=Debug \
+              ..
+          make -j"$(sysctl -n hw.logicalcpu)"
 
-      - name: clang-tidy review
-        timeout-minutes: 20
-        uses: Nerixyz/clang-tidy-review@e005a6ddf5cc4884b4bcab9930df255438183fd1
-        with:
-          include: src/main.cpp
-          build_dir: build
-          config_file: ".clang-tidy"
-          split_workflow: true
+      - name: Download and extract Twitch PubSub Server Test
+        run: |
+          mkdir pubsub-server-test
+          curl -L -o pubsub-server.tar.gz "https://github.com/Chatterino/twitch-pubsub-server-test/releases/download/${{ env.TWITCH_PUBSUB_SERVER_TAG }}/server-${{ env.TWITCH_PUBSUB_SERVER_TAG }}-darwin-amd64.tar.gz"
+          tar -xzf pubsub-server.tar.gz -C pubsub-server-test
+          rm pubsub-server.tar.gz
+          cd pubsub-server-test
+          cd ..
 
-      - name: clang-tidy-review upload
-        uses: Nerixyz/clang-tidy-review/upload@e005a6ddf5cc4884b4bcab9930df255438183fd1
+      - name: Test
+        timeout-minutes: 30
+        run: |
+          cd ../pubsub-server-test
+          ./server 127.0.0.1:9050 127.0.0.1:9052 &
+          cd ../build-test
+          sleep 3
+          ctest -V --repeat until-fail:100 -j1 --test-timeout 2
+        working-directory: build-test
