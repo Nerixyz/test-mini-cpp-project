@@ -45,11 +45,11 @@ jobs:
           cd ..
 
       - name: Test
-        timeout-minutes: 30
+        timeout-minutes: 10
         run: |
           cd ../pubsub-server-test
           ./server 127.0.0.1:9050 127.0.0.1:9052 &
           cd ../build-test
           sleep 3
-          ctest -V --repeat until-fail:100 -j1 --test-timeout 2
+          ctest -V --repeat until-fail:100 -j1
         working-directory: build-test
