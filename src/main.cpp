@@ -13,6 +13,7 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/websocket/ssl.hpp>
 #include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -72,7 +73,7 @@ public:
     void on_resolve(beast::error_code ec, tcp::resolver::results_type results)
     {
         if (ec)
-            return fail(ec, "resolve");
+            std::terminate();
 
         // Set a timeout on the operation
         beast::get_lowest_layer(ws_).expires_after(std::chrono::seconds(30));
@@ -87,7 +88,7 @@ public:
                     tcp::resolver::results_type::endpoint_type ep)
     {
         if (ec)
-            return fail(ec, "connect");
+            std::terminate();
 
         // Set a timeout on the operation
         beast::get_lowest_layer(ws_).expires_after(std::chrono::seconds(30));
@@ -107,7 +108,7 @@ public:
     void on_ssl_handshake(beast::error_code ec)
     {
         if (ec)
-            return fail(ec, "ssl_handshake");
+            std::terminate();
 
         // Turn off the timeout on the tcp_stream, because
         // the websocket stream has its own timeout system.
@@ -126,7 +127,7 @@ public:
             }));
 
         // Perform the websocket handshake
-        ws_.async_handshake(host_, "/",
+        ws_.async_handshake(host_, "/echo",
                             beast::bind_front_handler(&session::on_handshake,
                                                       shared_from_this()));
     }
@@ -134,7 +135,10 @@ public:
     void on_handshake(beast::error_code ec)
     {
         if (ec)
-            return fail(ec, "handshake");
+            std::terminate();
+
+        ws_.async_read(buffer_, beast::bind_front_handler(&session::on_read,
+                                                          shared_from_this()));
 
         // Send the message
         ws_.async_write(
@@ -147,11 +151,7 @@ public:
         boost::ignore_unused(bytes_transferred);
 
         if (ec)
-            return fail(ec, "write");
-
-        // Read a message into our buffer
-        ws_.async_read(buffer_, beast::bind_front_handler(&session::on_read,
-                                                          shared_from_this()));
+            std::terminate();
     }
 
     void on_read(beast::error_code ec, std::size_t bytes_transferred)
