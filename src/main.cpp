@@ -13,6 +13,7 @@
 //
 //------------------------------------------------------------------------------
 
+#include <atomic>
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
@@ -124,9 +125,9 @@ private:
 struct WebSocketListener {
     virtual ~WebSocketListener() = default;
 
-    virtual void onTextMessage() = 0;
+    virtual void onTextMessage(std::string data) = 0;
 
-    virtual void onBinaryMessage() = 0;
+    virtual void onBinaryMessage(std::string data) = 0;
 
     virtual void onClose(std::unique_ptr<WebSocketListener> self) = 0;
 };
@@ -465,6 +466,16 @@ void WebSocketConnectionHelper<Derived, Inner>::onReadDone(
         return;
     }
 
+    std::string data(static_cast<const char*>(this->readBuffer.cdata().data()), bytesRead);
+    if (this->stream.got_text())
+    {
+        this->listener->onTextMessage(std::move(data));
+    }
+    else
+    {
+        this->listener->onBinaryMessage(std::move(data));
+    }
+
     this->readBuffer.consume(bytesRead);
 
     std::cout << "queue read\n";
@@ -781,15 +792,20 @@ struct Listener : public WebSocketListener {
         closeFlag.set();
     }
 
-    void onTextMessage() override
+    void onTextMessage(std::string data) override
     {
+        messages.emplace_back(true, std::move(data));
+        std::atomic_thread_fence(std::memory_order_seq_cst); // qbytearray
     }
 
-    void onBinaryMessage() override
+    void onBinaryMessage(std::string data) override
     {
+        messages.emplace_back(false, std::move(data));
+        std::atomic_thread_fence(std::memory_order_seq_cst);
     }
 
     OnceFlag &closeFlag;
+    std::vector<std::pair<bool, std::string>> messages;
 };
 
 //------------------------------------------------------------------------------
