@@ -10,11 +10,16 @@ class App(ConanFile):
     default_options = {
         "openssl*:shared": True,
         "boost*:header_only": True,
+        "with_openssl": False,
+    }
+    options = {
+        "with_openssl": [True, False],
     }
 
     def requirements(self):
         self.requires("boost/1.87.0")
-        self.requires("openssl/3.3.2")
+        if self.options.get_safe("with_openssl", False):
+            self.requires("openssl/3.3.2")
 
     def generate(self):
         tc = CMakeToolchain(self)

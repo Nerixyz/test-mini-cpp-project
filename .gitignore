@@ -1,1 +1,3 @@
 build/
+*.exe
+test-mini-cpp-project

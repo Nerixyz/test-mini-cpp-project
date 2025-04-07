@@ -1,5 +1,5 @@
 ---
-name: clang-tidy
+name: Test
 
 on:
   push:
@@ -16,40 +16,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  clang-tidy:
+  test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
 
-      - run: brew install openssl cmake boost
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - run: go get -v -t && go build
+
+      - if: startsWith(matrix.os, 'macos')
+        run: brew install openssl cmake
+      - if: startsWith(matrix.os, 'windows')
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+      - if: startsWith(matrix.os, 'windows')
+        run: choco install openssl
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt update && sudo apt install cmake build-essential libssl-dev
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install Conan
+        run: |
+          uv tool install conan
+          conan --version
+          conan profile detect
+
       - name: Build
         run: |
           mkdir build-test
           cd build-test
-          cmake \
-              -DCMAKE_BUILD_TYPE=Debug \
-              ..
-          make -j"$(sysctl -n hw.logicalcpu)"
-
-      - name: Download and extract Twitch PubSub Server Test
-        run: |
-          mkdir pubsub-server-test
-          curl -L -o pubsub-server.tar.gz "https://github.com/Chatterino/twitch-pubsub-server-test/releases/download/${{ env.TWITCH_PUBSUB_SERVER_TAG }}/server-${{ env.TWITCH_PUBSUB_SERVER_TAG }}-darwin-amd64.tar.gz"
-          tar -xzf pubsub-server.tar.gz -C pubsub-server-test
-          rm pubsub-server.tar.gz
-          cd pubsub-server-test
-          cd ..
+          conan install .. --output-folder=. -b missing -s build_type=Debug
+          cmake -DCMAKE_BUILD_TYPE=Debug ..
+          cmake --build .
 
       - name: Test
         timeout-minutes: 10
         run: |
-          cd ../pubsub-server-test
-          ./server 127.0.0.1:9050 127.0.0.1:9052 &
-          cd ../build-test
+          ./test-mini-cpp-prject 127.0.0.1:9050 &
+          cd build-test
           sleep 3
           ctest -V --repeat until-fail:100 -j1
         working-directory: build-test
