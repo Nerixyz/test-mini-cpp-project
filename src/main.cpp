@@ -13,12 +13,12 @@
 //
 //------------------------------------------------------------------------------
 
+#include <boost/asio/ssl.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/core/make_printable.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/websocket/ssl.hpp>
-#include <boost/asio/ssl.hpp>
-#include <boost/asio/strand.hpp>
 #include <boost/beast/websocket/stream.hpp>
 #include <cstdlib>
 #include <deque>
@@ -26,27 +26,30 @@
 #include <memory>
 #include <string>
 
-namespace beast = boost::beast;         // from <boost/beast.hpp>
-namespace http = beast::http;           // from <boost/beast/http.hpp>
-namespace websocket = beast::websocket; // from <boost/beast/websocket.hpp>
+
+namespace beast = boost::beast;          // from <boost/beast.hpp>
+namespace http = beast::http;            // from <boost/beast/http.hpp>
+namespace websocket = beast::websocket;  // from <boost/beast/websocket.hpp>
 namespace asio = boost::asio;            // from <boost/asio.hpp>
-namespace ssl = boost::asio::ssl;       // from <boost/asio/ssl.hpp>
-using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
+namespace ssl = boost::asio::ssl;        // from <boost/asio/ssl.hpp>
+using tcp = boost::asio::ip::tcp;        // from <boost/asio/ip/tcp.hpp>
 
 //------------------------------------------------------------------------------
 
 // Report a failure
-void
-fail(beast::error_code ec, char const* what)
+void fail(beast::error_code ec, char const *what)
 {
     std::cerr << what << ": " << ec.message() << "\n";
-
 }
+
+class WebSocketPoolImpl;
+struct WebSocketListener;
 
 class WebSocketConnection
 {
 public:
-    WebSocketConnection(int id, boost::asio::io_context &ioc);
+    WebSocketConnection(int id, std::unique_ptr<WebSocketListener> listener,
+                        WebSocketPoolImpl *pool, boost::asio::io_context &ioc);
     virtual ~WebSocketConnection();
 
     WebSocketConnection(const WebSocketConnection &) = delete;
@@ -87,16 +90,90 @@ protected:
     std::deque<std::pair<bool, std::string>> queuedMessages;
     bool isSending = false;
     bool isClosing = false;
+    std::unique_ptr<WebSocketListener> listener;
+    WebSocketPoolImpl *pool;
     int id = 0;
 
     boost::beast::flat_buffer readBuffer;
 };
 
+class WebSocketHandle
+{
+public:
+    WebSocketHandle() = default;
+    WebSocketHandle(std::weak_ptr<WebSocketConnection> conn);
+    ~WebSocketHandle();
+
+    WebSocketHandle(const WebSocketHandle &) = delete;
+    WebSocketHandle(WebSocketHandle &&) = default;
+    WebSocketHandle &operator=(const WebSocketHandle &) = delete;
+    WebSocketHandle &operator=(WebSocketHandle &&) = default;
+
+    void sendText(const std::string &data);
+    void sendBinary(const std::string &data);
+    void close();
+
+private:
+    std::weak_ptr<WebSocketConnection> conn;
+};
+
+struct WebSocketListener {
+    virtual ~WebSocketListener() = default;
+
+    virtual void onTextMessage() = 0;
+
+    virtual void onBinaryMessage() = 0;
+
+    virtual void onClose(std::unique_ptr<WebSocketListener> self) = 0;
+};
+
+class WebSocketConnection;
+
+class WebSocketPoolImpl
+{
+public:
+    WebSocketPoolImpl();
+    ~WebSocketPoolImpl();
+
+    WebSocketPoolImpl(const WebSocketPoolImpl &) = delete;
+    WebSocketPoolImpl(WebSocketPoolImpl &&) = delete;
+    WebSocketPoolImpl &operator=(const WebSocketPoolImpl &) = delete;
+    WebSocketPoolImpl &operator=(WebSocketPoolImpl &&) = delete;
+
+    void removeConnection(WebSocketConnection *conn);
+
+    std::unique_ptr<std::thread> ioThread;
+    boost::asio::io_context ioc;
+    boost::asio::ssl::context ssl;
+    boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
+        work;
+
+    std::vector<std::shared_ptr<WebSocketConnection>> connections;
+    std::mutex connectionMutex;
+
+    bool closing = false;
+    int nextID = 1;
+};
+
+class WebSocketPool
+{
+public:
+    WebSocketPool();
+    ~WebSocketPool();
+
+    [[nodiscard]] WebSocketHandle createSocket(
+        std::unique_ptr<WebSocketListener> listener);
+
+private:
+    std::unique_ptr<WebSocketPoolImpl> impl;
+};
+
 WebSocketConnection::WebSocketConnection(
-   int id,
-    boost::asio::io_context &ioc)
-    : 
-    resolver(boost::asio::make_strand(ioc))
+    int id, std::unique_ptr<WebSocketListener> listener,
+    WebSocketPoolImpl *pool, boost::asio::io_context &ioc)
+    : resolver(boost::asio::make_strand(ioc))
+    , listener(std::move(listener))
+    , pool(pool)
     , id(id)
 {
     std::cout << "Created\n";
@@ -109,10 +186,24 @@ WebSocketConnection::~WebSocketConnection()
 
 void WebSocketConnection::detach()
 {
-    std::cout << "Detached\n";
+    bool anyWork = this->listener != nullptr || this->pool != nullptr;
+    if (this->listener)
+    {
+        this->listener->onClose(std::move(this->listener));
+    }
+    if (this->pool)
+    {
+        this->pool->removeConnection(this);
+        this->pool = nullptr;
+    }
+
+    if (anyWork)
+    {
+        std::cout << "Detached\n";
+    }
 }
 
-    template <typename Derived, typename Inner>
+template <typename Derived, typename Inner>
 class WebSocketConnectionHelper : public WebSocketConnection,
                                   public std::enable_shared_from_this<
                                       WebSocketConnectionHelper<Derived, Inner>>
@@ -142,6 +233,8 @@ protected:
 private:
     // This is private to ensure only `Derived` can construct this class.
     WebSocketConnectionHelper(int id,
+                              std::unique_ptr<WebSocketListener> listener,
+                              WebSocketPoolImpl *pool,
                               boost::asio::io_context &ioc, Stream stream);
 
     void onResolve(boost::system::error_code ec,
@@ -168,7 +261,8 @@ class TlsWebSocketConnection
 public:
     static constexpr int DEFAULT_PORT = 443;
 
-    TlsWebSocketConnection(int id,
+    TlsWebSocketConnection(int id, std::unique_ptr<WebSocketListener> listener,
+                           WebSocketPoolImpl *pool,
                            boost::asio::io_context &ioc,
                            boost::asio::ssl::context &ssl);
 
@@ -181,32 +275,13 @@ protected:
         boost::asio::ssl::stream<boost::beast::tcp_stream>>;
 };
 
-/// A WebSocket connection over TCP (ws://).
-class TcpWebSocketConnection
-    : public WebSocketConnectionHelper<TcpWebSocketConnection,
-                                       boost::beast::tcp_stream>
-{
-public:
-    static constexpr int DEFAULT_PORT = 80;
-
-    TcpWebSocketConnection(int id,
-                           boost::asio::io_context &ioc);
-
-protected:
-    void afterTcpHandshake();
-
-    friend WebSocketConnectionHelper<TcpWebSocketConnection,
-                                     boost::beast::tcp_stream>;
-};
-
-
 // MARK: WebSocketConnectionHelper
 
 template <typename Derived, typename Inner>
 WebSocketConnectionHelper<Derived, Inner>::WebSocketConnectionHelper(
-     int id,
-    asio::io_context &ioc, Stream stream)
-    : WebSocketConnection(id, ioc)
+    int id, std::unique_ptr<WebSocketListener> listener,
+    WebSocketPoolImpl *pool, asio::io_context &ioc, Stream stream)
+    : WebSocketConnection(id, std::move(listener), pool, ioc)
     , stream(std::move(stream))
 {
 }
@@ -221,14 +296,15 @@ template <typename Derived, typename Inner>
 void WebSocketConnectionHelper<Derived, Inner>::run()
 {
     std::string host = "127.0.0.1";
-    
-    if constexpr (requires { this->stream.next_layer().native_handle(); }) {
-        if (::SSL_set_tlsext_host_name(this->stream.next_layer().native_handle(),
-                                    host.c_str()) == 0)
+
+    if constexpr (requires { this->stream.next_layer().native_handle(); })
+    {
+        if (::SSL_set_tlsext_host_name(
+                this->stream.next_layer().native_handle(), host.c_str()) == 0)
         {
             this->fail({static_cast<int>(::ERR_get_error()),
                         asio::error::get_ssl_category()},
-                    "Setting SNI hostname");
+                       "Setting SNI hostname");
             return;
         }
     }
@@ -248,7 +324,8 @@ void WebSocketConnectionHelper<Derived, Inner>::close()
 }
 
 template <typename Derived, typename Inner>
-void WebSocketConnectionHelper<Derived, Inner>::sendText(const std::string &data)
+void WebSocketConnectionHelper<Derived, Inner>::sendText(
+    const std::string &data)
 {
     this->post([self{this->shared_from_this()}, data] {
         self->queuedMessages.emplace_back(true, data);
@@ -363,8 +440,8 @@ void WebSocketConnectionHelper<Derived, Inner>::onWsHandshake(
     std::cout << "queue read\n";
     this->stream.async_read(
         this->readBuffer,
-            beast::bind_front_handler(&WebSocketConnectionHelper::onReadDone,
-                                      this->shared_from_this()));
+        beast::bind_front_handler(&WebSocketConnectionHelper::onReadDone,
+                                  this->shared_from_this()));
 }
 
 template <typename Derived, typename Inner>
@@ -372,7 +449,7 @@ void WebSocketConnectionHelper<Derived, Inner>::onReadDone(
     boost::system::error_code ec, size_t bytesRead)
 {
     std::cout << "enter read-done\n";
-    if (this->isClosing)
+    if (!this->listener || this->isClosing)
     {
         std::cout << "leave read-done\n";
         return;
@@ -389,8 +466,8 @@ void WebSocketConnectionHelper<Derived, Inner>::onReadDone(
     std::cout << "queue read\n";
     this->stream.async_read(
         this->readBuffer,
-            beast::bind_front_handler(&WebSocketConnectionHelper::onReadDone,
-                                      this->shared_from_this()));
+        beast::bind_front_handler(&WebSocketConnectionHelper::onReadDone,
+                                  this->shared_from_this()));
 }
 
 template <typename Derived, typename Inner>
@@ -454,7 +531,7 @@ void WebSocketConnectionHelper<Derived, Inner>::closeImpl()
             std::cout << "enter close-cb\n";
             if (ec)
             {
-               std::cout << "Failed to close\n";
+                std::cout << "Failed to close\n";
                 // make sure we cancel all operations
                 beast::get_lowest_layer(this->stream).cancel();
             }
@@ -491,9 +568,10 @@ void WebSocketConnectionHelper<Derived, Inner>::forceStop()
 // MARK: TlsWebSocketConnection
 
 TlsWebSocketConnection::TlsWebSocketConnection(
-     int id,
-    asio::io_context &ioc, asio::ssl::context &ssl)
-    : WebSocketConnectionHelper(id,  ioc, Stream{asio::make_strand(ioc), ssl})
+    int id, std::unique_ptr<WebSocketListener> listener,
+    WebSocketPoolImpl *pool, asio::io_context &ioc, asio::ssl::context &ssl)
+    : WebSocketConnectionHelper(id, std::move(listener), pool, ioc,
+                                Stream{asio::make_strand(ioc), ssl})
 {
 }
 
@@ -526,65 +604,217 @@ void TlsWebSocketConnection::afterTcpHandshake()
             }
 
             std::cout << "TLS handshake done, using"
-                << ::SSL_get_version(this->stream.next_layer().native_handle()) << std::endl;
+                      << ::SSL_get_version(
+                             this->stream.next_layer().native_handle())
+                      << std::endl;
             this->doWsHandshake();
         });
 }
 
-// MARK: TcpWebSocketConnection
+WebSocketPool::WebSocketPool() = default;
+WebSocketPool::~WebSocketPool() = default;
 
-TcpWebSocketConnection::TcpWebSocketConnection(
-     int id,
-    asio::io_context &ioc)
-    : WebSocketConnectionHelper(id, ioc, Stream{asio::make_strand(ioc)})
+WebSocketHandle WebSocketPool::createSocket(
+    std::unique_ptr<WebSocketListener> listener)
+{
+    if (!this->impl)
+    {
+        this->impl = std::make_unique<WebSocketPoolImpl>();
+    }
+    if (this->impl->closing)
+    {
+        return {{}};
+    }
+
+    std::shared_ptr<WebSocketConnection> conn =
+        std::make_shared<TlsWebSocketConnection>(
+            this->impl->nextID++, std::move(listener), this->impl.get(),
+            this->impl->ioc, this->impl->ssl);
+
+    {
+        std::unique_lock guard(this->impl->connectionMutex);
+        this->impl->connections.push_back(conn);
+    }
+
+    boost::asio::post(this->impl->ioc, [conn] {
+        conn->run();
+    });
+
+    return {conn};
+}
+
+// MARK: WebSocketHandle
+
+WebSocketHandle::WebSocketHandle(std::weak_ptr<WebSocketConnection> conn)
+    : conn(std::move(conn))
 {
 }
 
-void TcpWebSocketConnection::afterTcpHandshake()
+WebSocketHandle::~WebSocketHandle()
 {
-    this->doWsHandshake();
+    this->close();
 }
 
+void WebSocketHandle::close()
+{
+    std::cout << "outer close\n";
+    auto strong = this->conn.lock();
+    if (strong)
+    {
+        strong->close();
+    }
+}
 
+void WebSocketHandle::sendText(const std::string &data)
+{
+    auto strong = this->conn.lock();
+    if (strong)
+    {
+        strong->sendText(data);
+    }
+}
+
+void WebSocketHandle::sendBinary(const std::string &data)
+{
+    auto strong = this->conn.lock();
+    if (strong)
+    {
+        strong->sendBinary(data);
+    }
+}
+
+WebSocketPoolImpl::WebSocketPoolImpl()
+    : ioc(1)
+    , ssl(boost::asio::ssl::context::tls_client)
+    , work(this->ioc.get_executor())
+{
+    boost::system::error_code ec;
+    auto _ = this->ssl.set_options(
+        boost::asio::ssl::context::no_tlsv1 |
+            boost::asio::ssl::context::no_tlsv1_1 |
+            boost::asio::ssl::context::default_workarounds |
+            boost::asio::ssl::context::single_dh_use,
+        ec);
+
+    this->ioThread = std::make_unique<std::thread>([this] {
+        this->ioc.run();
+    });
+}
+
+WebSocketPoolImpl::~WebSocketPoolImpl()
+{
+    this->closing = true;
+    this->work.reset();
+    {
+        std::lock_guard g(this->connectionMutex);
+        for (const auto &conn : this->connections)
+        {
+            conn->close();
+        }
+    }
+    if (!this->ioThread)
+    {
+        return;
+    }
+
+    // Set a maximum timeout on the close operations on all clients.
+    // if (this->stoppedFlag.waitFor(std::chrono::milliseconds{1000}))
+    {
+        this->ioThread->join();
+        return;
+    }
+
+    // qCWarning(chatterinoWebsocket)
+    //     << "IO-Thread didn't finish after stopping, discard it";
+    // // detach the thread so the destructor doesn't attempt any joining
+    // this->ioThread->detach();
+}
+
+void WebSocketPoolImpl::removeConnection(WebSocketConnection *conn)
+{
+    std::lock_guard g(this->connectionMutex);
+    std::erase_if(this->connections, [conn](const auto &v) {
+        return v.get() == conn;
+    });
+}
+
+class OnceFlag
+{
+public:
+    OnceFlag() = default;
+
+    void set()
+    {
+        {
+            std::unique_lock guard(this->mutex);
+            this->flag = true;
+        }
+        this->condvar.notify_all();
+    }
+
+    bool waitFor(std::chrono::milliseconds ms)
+    {
+        std::unique_lock lock(this->mutex);
+        return this->condvar.wait_for(lock, ms, [this] {
+            return this->flag;
+        });
+    }
+
+private:
+    std::mutex mutex;
+    std::condition_variable condvar;
+    bool flag = false;
+};
+
+struct Listener : public WebSocketListener {
+    Listener(OnceFlag &f): closeFlag(f){}
+
+    void onClose(std::unique_ptr<WebSocketListener> /*self*/) override
+    {
+        closeFlag.set();
+    }
+
+    void onTextMessage() override
+    {
+    }
+
+    void onBinaryMessage() override
+    {
+    }
+
+    OnceFlag &closeFlag;
+};
 
 //------------------------------------------------------------------------------
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     // Check command line arguments.
-    if(argc != 3)
+    if (argc != 3)
     {
-        std::cerr <<
-            "Usage: websocket-client-async-ssl <host> <port> <text>\n" <<
-            "Example:\n" <<
-            "    websocket-client-async-ssl echo.websocket.org 443 \"Hello, world!\"\n";
+        std::cerr << "Usage: websocket-client-async-ssl <host> <port> <text>\n"
+                  << "Example:\n"
+                  << "    websocket-client-async-ssl echo.websocket.org 443 "
+                     "\"Hello, world!\"\n";
         return EXIT_FAILURE;
     }
     auto const host = argv[1];
     auto const port = argv[2];
 
-    // The io_context is required for all I/O
-    asio::io_context ioc(1);
+    WebSocketPool pool;
+    OnceFlag closeFlag;
+    auto it = pool.createSocket(std::make_unique<Listener>(closeFlag));
 
-    // The SSL context is required, and holds certificates
-    ssl::context ctx{ssl::context::tls_client};
+    it.sendBinary(std::string(1 << 15, 'A'));
+    it.sendText("foo");
+    it.sendText("foo");
+    it.sendText("foo");
+    it.sendText("foo");
+    it.sendText("foo");
+    it.sendText("foo");
+    it.sendText("/CLOSE");
 
-    // Launch the asynchronous operation
-    auto it = std::make_shared<TlsWebSocketConnection>(1, ioc, ctx);
-    it->run();
-
-    it->sendBinary(std::string(1 << 15, 'A'));
-    it->sendText("foo");
-    it->sendText("foo");
-    it->sendText("foo");
-    it->sendText("foo");
-    it->sendText("foo");
-    it->sendText("foo");
-    it->sendText("/CLOSE");
-
-    // Run the I/O service. The call will return when
-    // the socket is closed.
-    ioc.run();
+    closeFlag.waitFor(std::chrono::milliseconds{1000});    
 
     return EXIT_SUCCESS;
 }
