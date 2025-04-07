@@ -18,7 +18,9 @@
 #include <boost/beast/websocket/ssl.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/strand.hpp>
+#include <boost/beast/websocket/stream.hpp>
 #include <cstdlib>
+#include <deque>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -46,6 +48,7 @@ class session : public std::enable_shared_from_this<session>
     websocket::stream<ssl::stream<beast::tcp_stream>> ws_;
     beast::flat_buffer buffer_;
     std::string host_;
+    std::deque<std::string> messages_;
 
 public:
     // Resolver and socket require an io_context
@@ -74,6 +77,15 @@ public:
 
         // Save these for later
         host_ = host;
+
+        messages_ = {
+            std::string(1 << 15, 'A'),
+            "foo",
+            "foo",
+            "foo",
+            "foo",
+            "/CLOSE",
+        };
 
         // Look up the domain name
         resolver_.async_resolve(
@@ -106,6 +118,7 @@ public:
     void
     on_connect(beast::error_code ec, tcp::resolver::results_type::endpoint_type ep)
     {
+        std::cout << "connect" << std::endl;
         if(ec)
             return fail(ec, "connect");
 
@@ -149,6 +162,12 @@ public:
                         " websocket-client-async-ssl");
             }));
 
+        ws_.control_callback([](auto ty, auto) {
+            if (ty == beast::websocket::frame_type::close) {
+                std::cout << "close\n";
+            }
+        });
+
         // Perform the websocket handshake
         ws_.async_handshake(host_, "/",
             beast::bind_front_handler(
@@ -171,7 +190,7 @@ public:
 
         // Send the message
         ws_.async_write(
-            net::buffer("/CLOSE"),
+            net::buffer(this->messages_.front()),
             beast::bind_front_handler(
                 &session::on_write,
                 shared_from_this()));
@@ -186,6 +205,15 @@ public:
 
         if(ec)
             return fail(ec, "write");
+
+        this->messages_.pop_front();
+        if (this->messages_.empty())
+            return;
+        ws_.async_write(
+            net::buffer(this->messages_.front()),
+            beast::bind_front_handler(
+                &session::on_write,
+                shared_from_this()));
     }
 
     void
@@ -194,10 +222,11 @@ public:
         std::size_t bytes_transferred)
     {
         boost::ignore_unused(bytes_transferred);
-
+        
         if(ec)
-            return fail(ec, "read");
-
+        return fail(ec, "read");
+    
+        std::cout << "read" << std::endl;
         buffer_.consume(bytes_transferred);
         ws_.async_read(
             buffer_,
