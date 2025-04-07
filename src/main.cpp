@@ -14,6 +14,7 @@
 //------------------------------------------------------------------------------
 
 #include <boost/beast/core.hpp>
+#include <boost/beast/core/make_printable.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/websocket/ssl.hpp>
 #include <boost/asio/ssl.hpp>
@@ -80,6 +81,13 @@ public:
 
         messages_ = {
             std::string(1 << 15, 'A'),
+            std::string(1 << 15, 'A'),
+            std::string(1 << 15, 'A'),
+            std::string(1 << 15, 'A'),
+            "foo",
+            "foo",
+            "foo",
+            "foo",
             "foo",
             "foo",
             "foo",
