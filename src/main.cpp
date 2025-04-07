@@ -24,10 +24,12 @@
 #include <deque>
 #include <iostream>
 #include <memory>
-#include <string>
-#include <thread>
 #include <mutex>
+#include <condition_variable>
 
+#include <string>
+
+#include <thread>
 
 namespace beast = boost::beast;          // from <boost/beast.hpp>
 namespace http = beast::http;            // from <boost/beast/http.hpp>
@@ -769,7 +771,10 @@ private:
 };
 
 struct Listener : public WebSocketListener {
-    Listener(OnceFlag &f): closeFlag(f){}
+    Listener(OnceFlag &f)
+        : closeFlag(f)
+    {
+    }
 
     void onClose(std::unique_ptr<WebSocketListener> /*self*/) override
     {
@@ -816,7 +821,7 @@ int main(int argc, char **argv)
     it.sendText("foo");
     it.sendText("/CLOSE");
 
-    closeFlag.waitFor(std::chrono::milliseconds{1000});    
+    closeFlag.waitFor(std::chrono::milliseconds{1000});
 
     return EXIT_SUCCESS;
 }
