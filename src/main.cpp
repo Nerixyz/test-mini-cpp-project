@@ -229,9 +229,6 @@ int main(int argc, char** argv)
     // The SSL context is required, and holds certificates
     ssl::context ctx{ssl::context::tls_client};
 
-    // Verify the remote server's certificate
-    ctx.set_verify_mode(ssl::verify_peer);
-
     // Launch the asynchronous operation
     std::make_shared<session>(ioc, ctx)->run(host, port);
 
