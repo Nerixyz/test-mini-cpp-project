@@ -74,9 +74,6 @@ public:
             return;
         }
 
-        // Set the expected hostname in the peer certificate for verification
-        ws_.next_layer().set_verify_callback(ssl::host_name_verification(host));
-
         // Save these for later
         host_ = host;
         text_ = text;

@@ -10,14 +10,17 @@ class App(ConanFile):
     default_options = {
         "openssl*:shared": True,
         "boost*:header_only": True,
+        "with_boost": True,
         "with_openssl": False,
     }
     options = {
+        "with_boost": [True, False],
         "with_openssl": [True, False],
     }
 
     def requirements(self):
-        self.requires("boost/1.87.0")
+        if self.options.get_safe("with_boost", True):
+            self.requires("boost/1.87.0")
         if self.options.get_safe("with_openssl", False):
             self.requires("openssl/3.3.2")
 

@@ -33,7 +33,7 @@ jobs:
       - run: go get -v -t && go build
 
       - if: startsWith(matrix.os, 'macos')
-        run: brew install openssl cmake
+        run: brew install openssl cmake boost
       - if: startsWith(matrix.os, 'windows')
         uses: ilammy/msvc-dev-cmd@v1.13.0
       - if: startsWith(matrix.os, 'windows')
@@ -54,7 +54,7 @@ jobs:
         run: |
           mkdir build-test
           cd build-test
-          conan install .. --output-folder=. -b missing -s build_type=Debug
+          conan install .. --output-folder=. -b missing -s build_type=Debug -o with_boost=${{ startsWith(matrix.os, 'macos') && 'False' || 'True' }}
           cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="conan_toolchain.cmake" ..
           cmake --build .
 
@@ -64,4 +64,4 @@ jobs:
           ./test-mini-cpp-project 127.0.0.1:9050 &
           cd build-test
           sleep 3
-          ctest -V --repeat until-fail:100 -j1
+          ctest -V --repeat until-fail:100 -j1 ${{ startsWith(matrix.os, 'windows') && '-C Debug' || '' }}
