@@ -263,7 +263,7 @@ int main(int argc, char** argv)
     auto const port = argv[2];
 
     // The io_context is required for all I/O
-    net::io_context ioc;
+    net::io_context ioc(1);
 
     // The SSL context is required, and holds certificates
     ssl::context ctx{ssl::context::tls_client};
