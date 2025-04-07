@@ -1023,7 +1023,12 @@ int main(int argc, char **argv)
 
     WebSocketPool pool;
     OnceFlag closeFlag;
-    auto it = pool.createSocket({.url = QUrl("wss://127.0.0.1:9050"),}, std::make_unique<Listener>(closeFlag));
+    auto it = pool.createSocket({.url = QUrl("wss://127.0.0.1:9050/echo"),
+       .headers={ {"My-Header", "my-header-VALUE"},
+                {"Another-Header", "other-header"},
+                {"Cookie", "xd"},  // "known" header
+    }
+    }, std::make_unique<Listener>(closeFlag));
 
     it.sendBinary(QByteArray(1 << 15, 'A'));
     it.sendText("foo");
