@@ -189,18 +189,18 @@ public:
         if(ec)
             return fail(ec, "handshake");
 
-        // Read a message into our buffer
-        ws_.async_read(
-            buffer_,
-            beast::bind_front_handler(
-                &session::on_read,
-                shared_from_this()));
-
         // Send the message
         ws_.async_write(
             net::buffer(this->messages_.front()),
             beast::bind_front_handler(
                 &session::on_write,
+                shared_from_this()));
+
+        // Read a message into our buffer
+        ws_.async_read(
+            buffer_,
+            beast::bind_front_handler(
+                &session::on_read,
                 shared_from_this()));
     }
 
@@ -217,6 +217,8 @@ public:
         this->messages_.pop_front();
         if (this->messages_.empty())
             return;
+
+        ws_.text(this->messages_.size() % 2 == 0);
         ws_.async_write(
             net::buffer(this->messages_.front()),
             beast::bind_front_handler(

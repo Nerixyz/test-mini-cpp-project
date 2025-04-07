@@ -64,4 +64,4 @@ jobs:
           ./test-mini-cpp-project 127.0.0.1:9050 &
           cd build-test
           sleep 3
-          ctest -V --repeat until-fail:100 -j1 ${{ startsWith(matrix.os, 'windows') && '-C Debug' || '' }}
+          ctest -V --repeat until-fail:1000 -j1 ${{ startsWith(matrix.os, 'windows') && '-C Debug' || '' }}
