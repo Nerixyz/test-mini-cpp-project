@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 find_package(Boost REQUIRED OPTIONAL_COMPONENTS headers)
 find_package(OpenSSL REQUIRED)
+find_package(Qt6 REQUIRED COMPONENTS Core)
 
 add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_LIST_DIR}/src/main.cpp)
 target_link_libraries(${PROJECT_NAME}
@@ -16,6 +17,7 @@ target_link_libraries(${PROJECT_NAME}
         ${Boost_LIBRARIES}
         OpenSSL::SSL
         OpenSSL::Crypto
+        Qt6::Core
 )
 target_compile_options(${PROJECT_NAME} PRIVATE $<$<BOOL:${MSVC}>:/bigobj>)
 

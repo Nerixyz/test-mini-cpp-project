@@ -13,6 +13,8 @@
 //
 //------------------------------------------------------------------------------
 
+#define QT_NO_KEYWORDS 1
+
 #include <atomic>
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/strand.hpp>
@@ -21,39 +23,149 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/websocket/ssl.hpp>
 #include <boost/beast/websocket/stream.hpp>
+#include <boost/asio/cancellation_signal.hpp>
+#include <boost/asio/bind_cancellation_slot.hpp>
 #include <cstdlib>
 #include <deque>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <condition_variable>
+#include <QDebug>
+#include <QString>
+#include <QByteArray>
+#include <QLoggingCategory>
+#include <QUrl>
 
 #include <string>
 
 #include <thread>
 
 namespace beast = boost::beast;          // from <boost/beast.hpp>
-namespace http = beast::http;            // from <boost/beast/http.hpp>
-namespace websocket = beast::websocket;  // from <boost/beast/websocket.hpp>
 namespace asio = boost::asio;            // from <boost/asio.hpp>
-namespace ssl = boost::asio::ssl;        // from <boost/asio/ssl.hpp>
 using tcp = boost::asio::ip::tcp;        // from <boost/asio/ip/tcp.hpp>
-
-//------------------------------------------------------------------------------
-
-// Report a failure
-void fail(beast::error_code ec, char const *what)
-{
-    std::cerr << what << ": " << ec.message() << "\n";
-}
 
 class WebSocketPoolImpl;
 struct WebSocketListener;
 
+struct WebSocketOptions {
+    QUrl url;
+    std::vector<std::pair<std::string, std::string>> headers;
+};
+
+Q_LOGGING_CATEGORY(chatterinoWebsocket, "chatterino.websocket");
+
+struct QByteArrayBuffer {
+    struct QByteArrayHolder {
+        QByteArray data;
+
+        operator boost::asio::const_buffer() const
+        {
+            return {
+                this->data.constData(),
+                static_cast<size_t>(this->data.size()),
+            };
+        }
+    };
+
+    struct ConstIterator : public std::bidirectional_iterator_tag {
+        // using iterator_category = std::bidirectional_iterator_tag;
+        using value_type = QByteArrayHolder;
+        using difference_type = ptrdiff_t;
+        using pointer = const QByteArrayHolder *;
+        using reference = const QByteArrayHolder &;
+
+        constexpr ConstIterator() noexcept = default;
+
+        constexpr explicit ConstIterator(pointer ptr) noexcept
+            : ptr(ptr)
+        {
+        }
+
+        [[nodiscard]] constexpr reference operator*() const noexcept
+        {
+            return *ptr;
+        }
+
+        [[nodiscard]] constexpr pointer operator->() const noexcept
+        {
+            return ptr;
+        }
+
+        constexpr ConstIterator &operator++() noexcept
+        {
+            ++ptr;
+            return *this;
+        }
+
+        constexpr ConstIterator operator++(int) noexcept
+        {
+            ConstIterator tmp = *this;
+            ++ptr;
+            return tmp;
+        }
+
+        constexpr ConstIterator &operator--() noexcept
+        {
+            --ptr;
+            return *this;
+        }
+
+        constexpr ConstIterator operator--(int) noexcept
+        {
+            ConstIterator tmp = *this;
+            --ptr;
+            return tmp;
+        }
+
+        [[nodiscard]] constexpr auto operator==(
+            const ConstIterator &rhs) const noexcept
+        {
+            return this->ptr == rhs.ptr;
+        }
+
+        const QByteArrayHolder *ptr = nullptr;
+    };
+
+    using value_type = QByteArrayHolder;
+    using size_type = size_t;
+    using difference_type = ptrdiff_t;
+    using pointer = QByteArrayHolder *;
+    using const_pointer = const QByteArrayHolder *;
+    using reference = QByteArrayHolder &;
+    using const_reference = const QByteArrayHolder &;
+    using iterator = ConstIterator;
+    using const_iterator = ConstIterator;
+
+    QByteArrayBuffer(QByteArray ba)
+        : holder({std::move(ba)})
+    {
+    }
+
+    const_iterator begin() const
+    {
+        return ConstIterator(&this->holder);
+    }
+
+    const_iterator end() const
+    {
+        return ConstIterator((&this->holder) + 1);
+    }
+
+    QByteArray data() const
+    {
+        return this->holder.data;
+    }
+
+    QByteArrayHolder holder;
+};
+
+
 class WebSocketConnection
 {
 public:
-    WebSocketConnection(int id, std::unique_ptr<WebSocketListener> listener,
+    WebSocketConnection(WebSocketOptions options, int id,
+                        std::unique_ptr<WebSocketListener> listener,
                         WebSocketPoolImpl *pool, boost::asio::io_context &ioc);
     virtual ~WebSocketConnection();
 
@@ -75,12 +187,12 @@ public:
     /// Send or queue a text message.
     ///
     /// Can be called from any thread.
-    virtual void sendText(const std::string &data) = 0;
+    virtual void sendText(const QByteArray &data) = 0;
 
     /// Send or queue a binary message.
     ///
     /// Can be called from any thread.
-    virtual void sendBinary(const std::string &data) = 0;
+    virtual void sendBinary(const QByteArray &data) = 0;
 
 protected:
     /// Reset and notify the parent and listener (if possible).
@@ -90,17 +202,24 @@ protected:
     /// - Set the listener and parent to (the equivalent of) nullptr.
     void detach();
 
+    WebSocketOptions options;
+    // nullable, used for signalling a disconnect
+    std::unique_ptr<WebSocketListener> listener;
+    // nullable, used for signalling a disconnect
+    WebSocketPoolImpl *pool;
+
     boost::asio::ip::tcp::resolver resolver;
 
-    std::deque<std::pair<bool, std::string>> queuedMessages;
+    std::deque<std::pair<bool, QByteArrayBuffer>> queuedMessages;
     bool isSending = false;
     bool isClosing = false;
-    std::unique_ptr<WebSocketListener> listener;
-    WebSocketPoolImpl *pool;
     int id = 0;
 
     boost::beast::flat_buffer readBuffer;
+
+    friend QDebug operator<<(QDebug dbg, const WebSocketConnection &conn);
 };
+
 
 class WebSocketHandle
 {
@@ -114,8 +233,8 @@ public:
     WebSocketHandle &operator=(const WebSocketHandle &) = delete;
     WebSocketHandle &operator=(WebSocketHandle &&) = default;
 
-    void sendText(const std::string &data);
-    void sendBinary(const std::string &data);
+    void sendText(const QByteArray &data);
+    void sendBinary(const QByteArray &data);
     void close();
 
 private:
@@ -125,11 +244,36 @@ private:
 struct WebSocketListener {
     virtual ~WebSocketListener() = default;
 
-    virtual void onTextMessage(std::string data) = 0;
+    /// A text message was received.
+    ///
+    /// This function is called from the websocket thread.
+    virtual void onTextMessage(QByteArray data) = 0;
 
-    virtual void onBinaryMessage(std::string data) = 0;
+    /// A binary message was received.
+    ///
+    /// This function is called from the websocket thread.
+    virtual void onBinaryMessage(QByteArray data) = 0;
 
+    /// The websocket was closed.
+    ///
+    /// This function is called from the websocket thread.
+    /// @param self The allocated listener (i.e. `self.get() == this`). Be
+    ///             careful where this is destroyed. Once `self` is destroyed,
+    ///             the instance of this class will be destroyed.
     virtual void onClose(std::unique_ptr<WebSocketListener> self) = 0;
+};
+
+class WebSocketPool
+{
+public:
+    WebSocketPool();
+    ~WebSocketPool();
+
+    [[nodiscard]] WebSocketHandle createSocket(
+        WebSocketOptions options, std::unique_ptr<WebSocketListener> listener);
+
+private:
+    std::unique_ptr<WebSocketPoolImpl> impl;
 };
 
 class WebSocketConnection;
@@ -160,33 +304,33 @@ public:
     int nextID = 1;
 };
 
-class WebSocketPool
-{
-public:
-    WebSocketPool();
-    ~WebSocketPool();
-
-    [[nodiscard]] WebSocketHandle createSocket(
-        std::unique_ptr<WebSocketListener> listener);
-
-private:
-    std::unique_ptr<WebSocketPoolImpl> impl;
-};
-
 WebSocketConnection::WebSocketConnection(
-    int id, std::unique_ptr<WebSocketListener> listener,
-    WebSocketPoolImpl *pool, boost::asio::io_context &ioc)
-    : resolver(boost::asio::make_strand(ioc))
+    WebSocketOptions options, int id,
+    std::unique_ptr<WebSocketListener> listener, WebSocketPoolImpl *pool,
+    boost::asio::io_context &ioc)
+    : options(std::move(options))
     , listener(std::move(listener))
     , pool(pool)
+    , resolver(boost::asio::make_strand(ioc))
     , id(id)
 {
-    std::cout << "Created\n";
+    qCDebug(chatterinoWebsocket) << *this << "Created";
 }
 
 WebSocketConnection::~WebSocketConnection()
 {
-    std::cout << "Destroyed" << std::endl;
+    assert(!this->listener && !this->pool);
+    qCDebug(chatterinoWebsocket) << *this << "Destroyed";
+}
+
+QDebug operator<<(QDebug dbg, const WebSocketConnection &conn)
+{
+    QDebugStateSaver state(dbg);
+
+    dbg.noquote().nospace()
+        << '[' << conn.id << '|' << conn.options.url.toDisplayString() << ']';
+
+    return dbg;
 }
 
 void WebSocketConnection::detach()
@@ -204,7 +348,7 @@ void WebSocketConnection::detach()
 
     if (anyWork)
     {
-        std::cout << "Detached\n";
+        qCDebug(chatterinoWebsocket) << *this << "Detached";
     }
 }
 
@@ -221,13 +365,13 @@ public:
     void run() final;
     void close() final;
 
-    void sendText(const std::string &data) final;
-    void sendBinary(const std::string &data) final;
+    void sendText(const QByteArray &data) final;
+    void sendBinary(const QByteArray &data) final;
 
 protected:
     Derived *derived();
 
-    void fail(boost::system::error_code ec, std::string op);
+    void fail(boost::system::error_code ec, QStringView op);
     void doWsHandshake();
 
     void closeImpl();
@@ -237,7 +381,7 @@ protected:
 
 private:
     // This is private to ensure only `Derived` can construct this class.
-    WebSocketConnectionHelper(int id,
+    WebSocketConnectionHelper(WebSocketOptions options, int id,
                               std::unique_ptr<WebSocketListener> listener,
                               WebSocketPoolImpl *pool,
                               boost::asio::io_context &ioc, Stream stream);
@@ -254,6 +398,8 @@ private:
 
     void forceStop();  // assumes the socket has been closed
 
+    boost::asio::cancellation_signal readCancellation;
+
     friend Derived;
 };
 
@@ -266,7 +412,8 @@ class TlsWebSocketConnection
 public:
     static constexpr int DEFAULT_PORT = 443;
 
-    TlsWebSocketConnection(int id, std::unique_ptr<WebSocketListener> listener,
+    TlsWebSocketConnection(WebSocketOptions options, int id,
+                           std::unique_ptr<WebSocketListener> listener,
                            WebSocketPoolImpl *pool,
                            boost::asio::io_context &ioc,
                            boost::asio::ssl::context &ssl);
@@ -284,9 +431,11 @@ protected:
 
 template <typename Derived, typename Inner>
 WebSocketConnectionHelper<Derived, Inner>::WebSocketConnectionHelper(
-    int id, std::unique_ptr<WebSocketListener> listener,
-    WebSocketPoolImpl *pool, asio::io_context &ioc, Stream stream)
-    : WebSocketConnection(id, std::move(listener), pool, ioc)
+    WebSocketOptions options, int id,
+    std::unique_ptr<WebSocketListener> listener, WebSocketPoolImpl *pool,
+    asio::io_context &ioc, Stream stream)
+    : WebSocketConnection(std::move(options), id, std::move(listener), pool,
+                          ioc)
     , stream(std::move(stream))
 {
 }
@@ -300,22 +449,17 @@ void WebSocketConnectionHelper<Derived, Inner>::post(auto &&fn)
 template <typename Derived, typename Inner>
 void WebSocketConnectionHelper<Derived, Inner>::run()
 {
-    std::string host = "127.0.0.1";
-
-    if constexpr (requires { this->stream.next_layer().native_handle(); })
+    auto host = this->options.url.host(QUrl::FullyEncoded).toStdString();
+    if constexpr (requires { this->derived()->setupStream(host); })
     {
-        if (::SSL_set_tlsext_host_name(
-                this->stream.next_layer().native_handle(), host.c_str()) == 0)
+        if (!this->derived()->setupStream(host))
         {
-            this->fail({static_cast<int>(::ERR_get_error()),
-                        asio::error::get_ssl_category()},
-                       "Setting SNI hostname");
             return;
         }
     }
 
     this->resolver.async_resolve(
-        host, "9050",
+        host, std::to_string(this->options.url.port(Derived::DEFAULT_PORT)),
         beast::bind_front_handler(&WebSocketConnectionHelper::onResolve,
                                   this->shared_from_this()));
 }
@@ -329,8 +473,7 @@ void WebSocketConnectionHelper<Derived, Inner>::close()
 }
 
 template <typename Derived, typename Inner>
-void WebSocketConnectionHelper<Derived, Inner>::sendText(
-    const std::string &data)
+void WebSocketConnectionHelper<Derived, Inner>::sendText(const QByteArray &data)
 {
     this->post([self{this->shared_from_this()}, data] {
         self->queuedMessages.emplace_back(true, data);
@@ -340,7 +483,7 @@ void WebSocketConnectionHelper<Derived, Inner>::sendText(
 
 template <typename Derived, typename Inner>
 void WebSocketConnectionHelper<Derived, Inner>::sendBinary(
-    const std::string &data)
+    const QByteArray &data)
 {
     this->post([self{this->shared_from_this()}, data] {
         self->queuedMessages.emplace_back(false, data);
@@ -361,11 +504,11 @@ void WebSocketConnectionHelper<Derived, Inner>::onResolve(
 {
     if (ec)
     {
-        this->fail(ec, "resolve");
+        this->fail(ec, u"resolve");
         return;
     }
 
-    std::cout << "Resolved host\n";
+    qCDebug(chatterinoWebsocket) << *this << "Resolved host";
 
     this->stream.control_callback(
         [self{this->weak_from_this()}](beast::websocket::frame_type ty,
@@ -375,7 +518,8 @@ void WebSocketConnectionHelper<Derived, Inner>::onResolve(
                 auto strong = self.lock();
                 if (strong && !strong->isClosing)
                 {
-                    std::cout << "Received close frame\n";
+                    qCDebug(chatterinoWebsocket)
+                        << *strong << "Received close frame";
                     strong->forceStop();
                 }
             }
@@ -396,11 +540,12 @@ void WebSocketConnectionHelper<Derived, Inner>::onTcpHandshake(
 {
     if (ec)
     {
-        this->fail(ec, "TCP handshake");
+        this->fail(ec, u"TCP handshake");
         return;
     }
 
-    std::cout << "TCP handshake done\n";
+    qCDebug(chatterinoWebsocket) << *this << "TCP handshake done";
+    this->options.url.setPort(ep.port());
 
     this->derived()->afterTcpHandshake();
 }
@@ -413,12 +558,48 @@ void WebSocketConnectionHelper<Derived, Inner>::doWsHandshake()
         beast::role_type::client));
     this->stream.set_option(beast::websocket::stream_base::decorator{
         [this](beast::websocket::request_type &req) {
-            req.set(beast::http::field::user_agent, "something");
+            bool hasUa = false;
+            for (const auto &[key, value] : this->options.headers)
+            {
+                // TODO(Qt 6.5): Use QUtf8StringView
+                QLatin1StringView keyView(key.c_str());
+                if (QLatin1StringView("user-agent")
+                        .compare(keyView, Qt::CaseInsensitive) == 0)
+                {
+                    hasUa = true;
+                }
+
+                try
+                {
+                    // this can fail if the key or value exceed the maximum size
+                    req.set(key, value);
+                }
+                catch (const boost::system::system_error &err)
+                {
+                    qCWarning(chatterinoWebsocket)
+                        << "Invalid header - name:" << QUtf8StringView(key)
+                        << "value:" << QUtf8StringView(value)
+                        << "error:" << QUtf8StringView(err.what());
+                }
+            }
+
+            // default UA
+            if (!hasUa)
+            {
+                auto ua = QStringLiteral("Chatterino/1")
+                              .toStdString();
+                req.set(beast::http::field::user_agent, ua);
+            }
         },
     });
 
-    std::string host = "127.0.0.1:9050";
-    std::string path = "/";
+    auto host = this->options.url.host(QUrl::FullyEncoded).toStdString() + ':' +
+                std::to_string(this->options.url.port(Derived::DEFAULT_PORT));
+    auto path = this->options.url.path(QUrl::FullyEncoded).toStdString();
+    if (path.empty())
+    {
+        path = "/";
+    }
     this->stream.async_handshake(
         host, path,
         beast::bind_front_handler(&WebSocketConnectionHelper::onWsHandshake,
@@ -429,44 +610,53 @@ template <typename Derived, typename Inner>
 void WebSocketConnectionHelper<Derived, Inner>::onWsHandshake(
     boost::system::error_code ec)
 {
-    if (this->isClosing)
+    if (!this->listener || this->isClosing)
     {
         return;
     }
     if (ec)
     {
-        this->fail(ec, "WS handshake");
+        this->fail(ec, u"WS handshake");
         return;
     }
 
-    std::cout << "WS handshake done\n";
+    qCDebug(chatterinoWebsocket)
+        << *this << "WS handshake done" << this->stream.is_open();
 
     this->trySend();
-    std::cout << "queue read\n";
+    qDebug() << "queue read";
     this->stream.async_read(
         this->readBuffer,
-        beast::bind_front_handler(&WebSocketConnectionHelper::onReadDone,
-                                  this->shared_from_this()));
+        asio::bind_cancellation_slot(
+            this->readCancellation.slot(),
+            beast::bind_front_handler(&WebSocketConnectionHelper::onReadDone,
+                                      this->shared_from_this())));
 }
 
 template <typename Derived, typename Inner>
 void WebSocketConnectionHelper<Derived, Inner>::onReadDone(
     boost::system::error_code ec, size_t bytesRead)
 {
-    std::cout << "enter read-done\n";
+    qDebug() << "enter read-done";
     if (!this->listener || this->isClosing)
     {
-        std::cout << "leave read-done\n";
+        qDebug() << "leave read-done";
         return;
     }
     if (ec)
     {
-        this->fail(ec, "read");
-        std::cout << "leave read-done\n";
+        this->fail(ec, u"read");
+        qDebug() << "leave read-done";
         return;
     }
 
-    std::string data(static_cast<const char*>(this->readBuffer.cdata().data()), bytesRead);
+    // XXX: this copies - we could read directly into a QByteArray
+    QByteArray data{
+        static_cast<const char *>(this->readBuffer.cdata().data()),
+        static_cast<QByteArray::size_type>(bytesRead),
+    };
+    this->readBuffer.consume(bytesRead);
+
     if (this->stream.got_text())
     {
         this->listener->onTextMessage(std::move(data));
@@ -476,13 +666,13 @@ void WebSocketConnectionHelper<Derived, Inner>::onReadDone(
         this->listener->onBinaryMessage(std::move(data));
     }
 
-    this->readBuffer.consume(bytesRead);
-
-    std::cout << "queue read\n";
+    qDebug() << "queue read";
     this->stream.async_read(
         this->readBuffer,
-        beast::bind_front_handler(&WebSocketConnectionHelper::onReadDone,
-                                  this->shared_from_this()));
+        asio::bind_cancellation_slot(
+            this->readCancellation.slot(),
+            beast::bind_front_handler(&WebSocketConnectionHelper::onReadDone,
+                                      this->shared_from_this())));
 }
 
 template <typename Derived, typename Inner>
@@ -501,7 +691,7 @@ void WebSocketConnectionHelper<Derived, Inner>::onWriteDone(
 
     if (ec)
     {
-        this->fail(ec, "write");
+        this->fail(ec, u"write");
         return;
     }
 
@@ -520,7 +710,7 @@ void WebSocketConnectionHelper<Derived, Inner>::trySend()
     this->isSending = true;
     this->stream.text(this->queuedMessages.front().first);
     this->stream.async_write(
-        asio::buffer(this->queuedMessages.front().second),
+        this->queuedMessages.front().second,
         beast::bind_front_handler(&WebSocketConnectionHelper::onWriteDone,
                                   this->shared_from_this()));
 }
@@ -534,36 +724,39 @@ void WebSocketConnectionHelper<Derived, Inner>::closeImpl()
     }
     this->isClosing = true;
 
-    std::cout << "Closing...\n";
+    qCDebug(chatterinoWebsocket) << *this << "Closing...";
 
     // cancel all pending operations
     this->resolver.cancel();
     beast::get_lowest_layer(this->stream).cancel();
+    this->readCancellation.emit(asio::cancellation_type::terminal);
 
     this->stream.async_close(
         beast::websocket::close_code::normal,
         [this, lifetime{this->shared_from_this()}](auto ec) {
-            std::cout << "enter close-cb\n";
+            qDebug() << "enter close-cb";
             if (ec)
             {
-                std::cout << "Failed to close\n";
+                qCWarning(chatterinoWebsocket) << *this << "Failed to close"
+                                               << QUtf8StringView(ec.message());
                 // make sure we cancel all operations
                 beast::get_lowest_layer(this->stream).cancel();
             }
             else
             {
-                std::cout << "Closed\n";
+                qCDebug(chatterinoWebsocket) << *this << "Closed";
             }
             this->detach();
-            std::cout << "leave close-cb\n";
+            qDebug() << "leave close-cb";
         });
 }
 
 template <typename Derived, typename Inner>
 void WebSocketConnectionHelper<Derived, Inner>::fail(
-    boost::system::error_code ec, std::string op)
+    boost::system::error_code ec, QStringView op)
 {
-    std::cout << "Failed: " << op << ' ' << ec.message() << std::endl;
+    qCWarning(chatterinoWebsocket)
+        << *this << "Failed:" << op << QUtf8StringView(ec.message());
     if (this->stream.is_open())
     {
         this->closeImpl();
@@ -577,16 +770,18 @@ void WebSocketConnectionHelper<Derived, Inner>::forceStop()
     this->isClosing = true;
     this->resolver.cancel();
     beast::get_lowest_layer(this->stream).cancel();
+    this->readCancellation.emit(asio::cancellation_type::terminal);
     this->detach();
 }
 
 // MARK: TlsWebSocketConnection
 
 TlsWebSocketConnection::TlsWebSocketConnection(
-    int id, std::unique_ptr<WebSocketListener> listener,
-    WebSocketPoolImpl *pool, asio::io_context &ioc, asio::ssl::context &ssl)
-    : WebSocketConnectionHelper(id, std::move(listener), pool, ioc,
-                                Stream{asio::make_strand(ioc), ssl})
+    WebSocketOptions options, int id,
+    std::unique_ptr<WebSocketListener> listener, WebSocketPoolImpl *pool,
+    asio::io_context &ioc, asio::ssl::context &ssl)
+    : WebSocketConnectionHelper(std::move(options), id, std::move(listener),
+                                pool, ioc, Stream{asio::make_strand(ioc), ssl})
 {
 }
 
@@ -598,7 +793,7 @@ bool TlsWebSocketConnection::setupStream(const std::string &host)
     {
         this->fail({static_cast<int>(::ERR_get_error()),
                     asio::error::get_ssl_category()},
-                   "Setting SNI hostname");
+                   u"Setting SNI hostname");
         return false;
     }
     return true;
@@ -614,14 +809,13 @@ void TlsWebSocketConnection::afterTcpHandshake()
          lifetime{this->shared_from_this()}](boost::system::error_code ec) {
             if (ec)
             {
-                this->fail(ec, "TLS handshake");
+                this->fail(ec, u"TLS handshake");
                 return;
             }
 
-            std::cout << "TLS handshake done, using"
-                      << ::SSL_get_version(
-                             this->stream.next_layer().native_handle())
-                      << std::endl;
+            qCDebug(chatterinoWebsocket)
+                << *this << "TLS handshake done, using"
+                << ::SSL_get_version(this->stream.next_layer().native_handle());
             this->doWsHandshake();
         });
 }
@@ -630,7 +824,7 @@ WebSocketPool::WebSocketPool() = default;
 WebSocketPool::~WebSocketPool() = default;
 
 WebSocketHandle WebSocketPool::createSocket(
-    std::unique_ptr<WebSocketListener> listener)
+    WebSocketOptions options, std::unique_ptr<WebSocketListener> listener)
 {
     if (!this->impl)
     {
@@ -641,10 +835,9 @@ WebSocketHandle WebSocketPool::createSocket(
         return {{}};
     }
 
-    std::shared_ptr<WebSocketConnection> conn =
-        std::make_shared<TlsWebSocketConnection>(
-            this->impl->nextID++, std::move(listener), this->impl.get(),
-            this->impl->ioc, this->impl->ssl);
+    std::shared_ptr<WebSocketConnection> conn = std::make_shared<TlsWebSocketConnection>(
+            std::move(options), this->impl->nextID++, std::move(listener),
+            this->impl.get(), this->impl->ioc, this->impl->ssl);
 
     {
         std::unique_lock guard(this->impl->connectionMutex);
@@ -660,7 +853,8 @@ WebSocketHandle WebSocketPool::createSocket(
 
 // MARK: WebSocketHandle
 
-WebSocketHandle::WebSocketHandle(std::weak_ptr<WebSocketConnection> conn)
+WebSocketHandle::WebSocketHandle(
+    std::weak_ptr<WebSocketConnection> conn)
     : conn(std::move(conn))
 {
 }
@@ -672,7 +866,7 @@ WebSocketHandle::~WebSocketHandle()
 
 void WebSocketHandle::close()
 {
-    std::cout << "outer close\n";
+    qCDebug(chatterinoWebsocket) << "outer close";
     auto strong = this->conn.lock();
     if (strong)
     {
@@ -680,7 +874,7 @@ void WebSocketHandle::close()
     }
 }
 
-void WebSocketHandle::sendText(const std::string &data)
+void WebSocketHandle::sendText(const QByteArray &data)
 {
     auto strong = this->conn.lock();
     if (strong)
@@ -689,7 +883,7 @@ void WebSocketHandle::sendText(const std::string &data)
     }
 }
 
-void WebSocketHandle::sendBinary(const std::string &data)
+void WebSocketHandle::sendBinary(const QByteArray &data)
 {
     auto strong = this->conn.lock();
     if (strong)
@@ -710,6 +904,11 @@ WebSocketPoolImpl::WebSocketPoolImpl()
             boost::asio::ssl::context::default_workarounds |
             boost::asio::ssl::context::single_dh_use,
         ec);
+    if (ec)
+    {
+        qCWarning(chatterinoWebsocket) << "Failed to set SSL context options"
+                                       << QString::fromStdString(ec.message());
+    }
 
     this->ioThread = std::make_unique<std::thread>([this] {
         this->ioc.run();
@@ -792,20 +991,18 @@ struct Listener : public WebSocketListener {
         closeFlag.set();
     }
 
-    void onTextMessage(std::string data) override
+    void onTextMessage(QByteArray data) override
     {
         messages.emplace_back(true, std::move(data));
-        std::atomic_thread_fence(std::memory_order_seq_cst); // qbytearray
     }
 
-    void onBinaryMessage(std::string data) override
+    void onBinaryMessage(QByteArray data) override
     {
         messages.emplace_back(false, std::move(data));
-        std::atomic_thread_fence(std::memory_order_seq_cst);
     }
 
     OnceFlag &closeFlag;
-    std::vector<std::pair<bool, std::string>> messages;
+    std::vector<std::pair<bool, QByteArray>> messages;
 };
 
 //------------------------------------------------------------------------------
@@ -826,9 +1023,9 @@ int main(int argc, char **argv)
 
     WebSocketPool pool;
     OnceFlag closeFlag;
-    auto it = pool.createSocket(std::make_unique<Listener>(closeFlag));
+    auto it = pool.createSocket({.url = QUrl("wss://127.0.0.1:9050"),}, std::make_unique<Listener>(closeFlag));
 
-    it.sendBinary(std::string(1 << 15, 'A'));
+    it.sendBinary(QByteArray(1 << 15, 'A'));
     it.sendText("foo");
     it.sendText("foo");
     it.sendText("foo");
