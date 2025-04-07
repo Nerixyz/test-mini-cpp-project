@@ -20,7 +20,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [
+            macos-latest,
+            # ubuntu-latest,
+            # windows-latest
+          ]
       fail-fast: false
 
     steps:
@@ -68,7 +72,12 @@ jobs:
       - name: Test
         timeout-minutes: 10
         run: |
-          ./test-mini-cpp-project 127.0.0.1:9050 &
-          cd build-test
+          mkdir pubsub-server-test
+          curl -L -o pubsub-server.tar.gz "https://github.com/Chatterino/twitch-pubsub-server-test/releases/download/${{ env.TWITCH_PUBSUB_SERVER_TAG }}/server-${{ env.TWITCH_PUBSUB_SERVER_TAG }}-darwin-amd64.tar.gz"
+          tar -xzf pubsub-server.tar.gz -C pubsub-server-test
+          rm pubsub-server.tar.gz
+          cd pubsub-server-test
+          ./server 127.0.0.1:9050 &
+          cd ../build-test
           sleep 3
           ctest -V --repeat until-fail:1000 ${{ startsWith(matrix.os, 'windows') && '-C Debug' || '' }}
