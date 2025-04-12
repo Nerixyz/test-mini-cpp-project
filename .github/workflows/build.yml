@@ -58,8 +58,8 @@ jobs:
         run: |
           mkdir build-test
           cd build-test
-          conan install .. --output-folder=. -b missing -s build_type=Debug -o with_boost=${{ startsWith(matrix.os, 'macos') && 'False' || 'True' }}
-          cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="conan_toolchain.cmake" ..
+          conan install .. --output-folder=. -b missing -s build_type=RelWithDebInfo -o with_boost=${{ startsWith(matrix.os, 'macos') && 'False' || 'True' }}
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="conan_toolchain.cmake" ..
           cmake --build .
 
       - name: Test
@@ -68,4 +68,4 @@ jobs:
           ./test-mini-cpp-project 127.0.0.1:9050 &
           cd build-test
           sleep 3
-          ctest -V --repeat until-fail:1000 ${{ startsWith(matrix.os, 'windows') && '-C Debug' || '' }}
+          ctest -V --repeat until-fail:1000 ${{ startsWith(matrix.os, 'windows') && '-C RelWithDebInfo' || '' }}
