@@ -44,12 +44,12 @@ func run() error {
 		WriteTimeout: time.Second * 10,
 	}
 
-	// certFile := "server.crt"
-	// keyFile := "server.key"
+	certFile := "server.crt"
+	keyFile := "server.key"
 	errc := make(chan error, 1)
 	go func() {
-		// errc <- tlsServer.ServeTLS(tlsListener, certFile, keyFile)
-		errc <- tlsServer.Serve(tlsListener)
+		errc <- tlsServer.ServeTLS(tlsListener, certFile, keyFile)
+		// errc <- tlsServer.Serve(tlsListener)
 	}()
 
 	sigs := make(chan os.Signal, 1)
