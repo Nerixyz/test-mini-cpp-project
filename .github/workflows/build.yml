@@ -37,6 +37,7 @@ jobs:
         with:
           flakes-from-devshell: true
           script: |
+            set -e
             go get && go build
             cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -B build
             cmake --build build
