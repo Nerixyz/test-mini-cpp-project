@@ -65,12 +65,10 @@ public:
         // Save these for later
         host_ = host;
         messages_ = {
-            "foo",
-            "foo",
-            "foo",
-            "foo",
-            "foo",
-            "foo",
+            std::string(1 << 15, 'A'),
+            std::string(1 << 15, 'A'),
+            std::string(1 << 15, 'A'),
+            std::string(1 << 15, 'A'),
             "foo",
             "foo",
             "foo",
