@@ -9,28 +9,24 @@
 
 //------------------------------------------------------------------------------
 //
-// Example: WebSocket SSL client, asynchronous
+// Example: WebSocket client, asynchronous
 //
 //------------------------------------------------------------------------------
 
 #include <boost/beast/core.hpp>
-#include <boost/beast/core/make_printable.hpp>
 #include <boost/beast/websocket.hpp>
-#include <boost/beast/websocket/ssl.hpp>
-#include <boost/asio/ssl.hpp>
 #include <boost/asio/strand.hpp>
-#include <boost/beast/websocket/stream.hpp>
 #include <cstdlib>
-#include <deque>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <deque>
 
 namespace beast = boost::beast;         // from <boost/beast.hpp>
 namespace http = beast::http;           // from <boost/beast/http.hpp>
 namespace websocket = beast::websocket; // from <boost/beast/websocket.hpp>
 namespace net = boost::asio;            // from <boost/asio.hpp>
-namespace ssl = boost::asio::ssl;       // from <boost/asio/ssl.hpp>
 using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
 
 //------------------------------------------------------------------------------
@@ -46,7 +42,7 @@ fail(beast::error_code ec, char const* what)
 class session : public std::enable_shared_from_this<session>
 {
     tcp::resolver resolver_;
-    websocket::stream<ssl::stream<beast::tcp_stream>> ws_;
+    websocket::stream<beast::tcp_stream> ws_;
     beast::flat_buffer buffer_;
     std::string host_;
     std::deque<std::string> messages_;
@@ -54,9 +50,9 @@ class session : public std::enable_shared_from_this<session>
 public:
     // Resolver and socket require an io_context
     explicit
-    session(net::io_context& ioc, ssl::context& ctx)
+    session(net::io_context& ioc)
         : resolver_(net::make_strand(ioc))
-        , ws_(net::make_strand(ioc), ctx)
+        , ws_(net::make_strand(ioc))
     {
     }
 
@@ -66,24 +62,12 @@ public:
         char const* host,
         char const* port)
     {
-        // Set SNI Hostname (many hosts need this to handshake successfully)
-        if(! SSL_set_tlsext_host_name(ws_.next_layer().native_handle(), host))
-        {
-            beast::error_code ec{
-                static_cast<int>(::ERR_get_error()),
-                net::error::get_ssl_category()};
-            std::cerr << ec.message() << "\n";
-            return;
-        }
-
         // Save these for later
         host_ = host;
-
         messages_ = {
-            std::string(1 << 15, 'A'),
-            std::string(1 << 15, 'A'),
-            std::string(1 << 15, 'A'),
-            std::string(1 << 15, 'A'),
+            "foo",
+            "foo",
+            "foo",
             "foo",
             "foo",
             "foo",
@@ -112,7 +96,7 @@ public:
         if(ec)
             return fail(ec, "resolve");
 
-        // Set a timeout on the operation
+        // Set the timeout for the operation
         beast::get_lowest_layer(ws_).expires_after(std::chrono::seconds(30));
 
         // Make the connection on the IP address we get from a lookup
@@ -126,31 +110,8 @@ public:
     void
     on_connect(beast::error_code ec, tcp::resolver::results_type::endpoint_type ep)
     {
-        std::cout << "connect" << std::endl;
         if(ec)
             return fail(ec, "connect");
-
-        // Set a timeout on the operation
-        beast::get_lowest_layer(ws_).expires_after(std::chrono::seconds(30));
- 
-        // Update the host_ string. This will provide the value of the
-        // Host HTTP header during the WebSocket handshake.
-        // See https://tools.ietf.org/html/rfc7230#section-5.4
-        host_ += ':' + std::to_string(ep.port());
-        
-        // Perform the SSL handshake
-        ws_.next_layer().async_handshake(
-            ssl::stream_base::client,
-            beast::bind_front_handler(
-                &session::on_ssl_handshake,
-                shared_from_this()));
-    }
-
-    void
-    on_ssl_handshake(beast::error_code ec)
-    {
-        if(ec)
-            return fail(ec, "ssl_handshake");
 
         // Turn off the timeout on the tcp_stream, because
         // the websocket stream has its own timeout system.
@@ -167,17 +128,16 @@ public:
             {
                 req.set(http::field::user_agent,
                     std::string(BOOST_BEAST_VERSION_STRING) +
-                        " websocket-client-async-ssl");
+                        " websocket-client-async");
             }));
 
-        ws_.control_callback([](auto ty, auto) {
-            if (ty == beast::websocket::frame_type::close) {
-                std::cout << "close\n";
-            }
-        });
+        // Update the host_ string. This will provide the value of the
+        // Host HTTP header during the WebSocket handshake.
+        // See https://tools.ietf.org/html/rfc7230#section-5.4
+        host_ += ':' + std::to_string(ep.port());
 
         // Perform the websocket handshake
-        ws_.async_handshake(host_, "/echo",
+        ws_.async_handshake(host_, "/",
             beast::bind_front_handler(
                 &session::on_handshake,
                 shared_from_this()));
@@ -188,19 +148,17 @@ public:
     {
         if(ec)
             return fail(ec, "handshake");
-
-        // Send the message
-        ws_.async_write(
-            net::buffer(this->messages_.front()),
-            beast::bind_front_handler(
-                &session::on_write,
-                shared_from_this()));
-
-        // Read a message into our buffer
+    
         ws_.async_read(
             buffer_,
             beast::bind_front_handler(
                 &session::on_read,
+                shared_from_this()));
+        // Send the message
+        ws_.async_write(
+            net::buffer(messages_.front()),
+            beast::bind_front_handler(
+                &session::on_write,
                 shared_from_this()));
     }
 
@@ -210,17 +168,16 @@ public:
         std::size_t bytes_transferred)
     {
         boost::ignore_unused(bytes_transferred);
+        if (messages_.empty()) {
+            return;
+        }
+        messages_.pop_front();
 
         if(ec)
             return fail(ec, "write");
-
-        this->messages_.pop_front();
-        if (this->messages_.empty())
-            return;
-
-        ws_.text(this->messages_.size() % 2 == 0);
+        
         ws_.async_write(
-            net::buffer(this->messages_.front()),
+            net::buffer(messages_.front()),
             beast::bind_front_handler(
                 &session::on_write,
                 shared_from_this()));
@@ -232,17 +189,26 @@ public:
         std::size_t bytes_transferred)
     {
         boost::ignore_unused(bytes_transferred);
-        
+
         if(ec)
-        return fail(ec, "read");
-    
-        std::cout << "read" << std::endl;
+            return fail(ec, "read");
+
         buffer_.consume(bytes_transferred);
+        // Close the WebSocket connection
         ws_.async_read(
             buffer_,
             beast::bind_front_handler(
                 &session::on_read,
                 shared_from_this()));
+    }
+
+    void
+    on_close(beast::error_code ec)
+    {
+        if(ec)
+            return fail(ec, "close");
+
+        std::cout << "on_close" << std::endl;
     }
 };
 
@@ -251,25 +217,22 @@ public:
 int main(int argc, char** argv)
 {
     // Check command line arguments.
-    if(argc != 3)
+    if(argc != 4)
     {
         std::cerr <<
-            "Usage: websocket-client-async-ssl <host> <port> <text>\n" <<
+            "Usage: websocket-client-async <host> <port> <text>\n" <<
             "Example:\n" <<
-            "    websocket-client-async-ssl echo.websocket.org 443 \"Hello, world!\"\n";
+            "    websocket-client-async echo.websocket.org 80 \"Hello, world!\"\n";
         return EXIT_FAILURE;
     }
     auto const host = argv[1];
     auto const port = argv[2];
 
     // The io_context is required for all I/O
-    net::io_context ioc(1);
-
-    // The SSL context is required, and holds certificates
-    ssl::context ctx{ssl::context::tls_client};
+    net::io_context ioc;
 
     // Launch the asynchronous operation
-    std::make_shared<session>(ioc, ctx)->run(host, port);
+    std::make_shared<session>(ioc)->run(host, port);
 
     // Run the I/O service. The call will return when
     // the socket is closed.
