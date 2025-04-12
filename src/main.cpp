@@ -18,6 +18,7 @@
 #include <boost/beast/websocket/ssl.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/strand.hpp>
+#include <boost/beast/websocket/stream.hpp>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -178,6 +179,12 @@ public:
     {
         if(ec)
             return fail(ec, "handshake");
+
+        ws_.control_callback([](auto ty, auto) {
+            if (ty == websocket::frame_type::close) {
+                std::cout << "received close frame" << std::endl;
+            }
+        });
     
         ws_.async_read(
             buffer_,
