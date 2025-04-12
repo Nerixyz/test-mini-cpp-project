@@ -30,13 +30,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Qt6
-        uses: jurplel/install-qt-action@v4.1.1
-        with:
-          cache: true
-          cache-key-prefix: ${{ runner.os }}-QtCache
-          version: 6.7.1
-
       - uses: actions/setup-go@v5
         with:
           go-version: stable
@@ -72,12 +65,7 @@ jobs:
       - name: Test
         timeout-minutes: 10
         run: |
-          mkdir pubsub-server-test
-          curl -L -o pubsub-server.tar.gz "https://github.com/Chatterino/twitch-pubsub-server-test/releases/download/${{ env.TWITCH_PUBSUB_SERVER_TAG }}/server-${{ env.TWITCH_PUBSUB_SERVER_TAG }}-darwin-amd64.tar.gz"
-          tar -xzf pubsub-server.tar.gz -C pubsub-server-test
-          rm pubsub-server.tar.gz
-          cd pubsub-server-test
           ./server 127.0.0.1:9050 &
-          cd ../build-test
+          cd build-test
           sleep 3
           ctest -V --repeat until-fail:1000 ${{ startsWith(matrix.os, 'windows') && '-C Debug' || '' }}
