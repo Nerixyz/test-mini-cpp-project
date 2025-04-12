@@ -38,8 +38,9 @@ jobs:
           flakes-from-devshell: true
           script: |
             go get && go build
-            cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="conan_toolchain.cmake" ..
-            cmake --build .
+            cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="conan_toolchain.cmake" -B build
+            cmake --build build
             ./test-mini-cpp-project 127.0.0.1:9050 &
             sleep 3
+            cd build
             ctest -V --repeat until-fail:1000
