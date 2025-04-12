@@ -217,7 +217,7 @@ public:
 int main(int argc, char** argv)
 {
     // Check command line arguments.
-    if(argc != 4)
+    if(argc != 3)
     {
         std::cerr <<
             "Usage: websocket-client-async <host> <port> <text>\n" <<
