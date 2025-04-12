@@ -34,7 +34,7 @@ jobs:
         with:
           go-version: stable
 
-      - run: go get -v -t && go build
+      - run: go get -v -t && go build -ldflags="-s -w"
 
       - if: startsWith(matrix.os, 'macos')
         run: brew install openssl cmake boost
