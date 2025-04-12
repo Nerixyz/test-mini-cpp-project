@@ -3,8 +3,6 @@ name: Test
 
 on:
   push:
-    branches:
-      - master
   pull_request:
   workflow_dispatch:
 
@@ -30,42 +28,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: cachix/install-nix-action@v31
         with:
-          go-version: stable
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
 
-      - run: go get -v && go build
-
-      - if: startsWith(matrix.os, 'macos')
-        run: brew install openssl cmake boost
-      - if: startsWith(matrix.os, 'windows')
-        uses: ilammy/msvc-dev-cmd@v1.13.0
-      - if: startsWith(matrix.os, 'windows')
-        run: choco install openssl
-      - if: startsWith(matrix.os, 'ubuntu')
-        run: sudo apt update && sudo apt install cmake build-essential libssl-dev
-
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install Conan
-        run: |
-          uv tool install conan
-          conan --version
-          conan profile detect
-
-      - name: Build
-        run: |
-          mkdir build-test
-          cd build-test
-          conan install .. --output-folder=. -b missing -s build_type=RelWithDebInfo -o with_boost=${{ startsWith(matrix.os, 'macos') && 'False' || 'True' }}
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="conan_toolchain.cmake" ..
-          cmake --build .
-
-      - name: Test
-        timeout-minutes: 10
-        run: |
-          ./test-mini-cpp-project 127.0.0.1:9050 &
-          cd build-test
-          sleep 3
-          ctest -V --repeat until-fail:1000 ${{ startsWith(matrix.os, 'windows') && '-C RelWithDebInfo' || '' }}
+      - uses: workflow/nix-shell-action@v3.4.0
+        with:
+          flakes-from-devshell: true
+          script: |
+            go get && go build
+            cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="conan_toolchain.cmake" ..
+            cmake --build .
+            ./test-mini-cpp-project 127.0.0.1:9050 &
+            sleep 3
+            ctest -V --repeat until-fail:1000
