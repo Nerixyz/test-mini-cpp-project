@@ -191,6 +191,7 @@ public:
         if(ec)
             return fail(ec, "read");
 
+        std::cout << "read " << bytes_transferred << std::endl;
         buffer_.consume(bytes_transferred);
         // Close the WebSocket connection
         ws_.async_read(
