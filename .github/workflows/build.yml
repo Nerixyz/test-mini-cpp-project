@@ -16,12 +16,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - run: |
-          echo "---- BEFORE ----"
+          echo "---- PATH ----"
           $Env:PATH
-          echo "---- DURING ----"
+          echo "---- INSTALL ----"
           choco install make
-          echo "---- AFTER (nothing should change) ----"
-          $Env:PATH
           echo "--------"
           where.exe make
+          echo "--------"
+          ls C:\ProgramData\Chocolatey\bin
         shell: powershell
