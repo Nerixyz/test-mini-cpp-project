@@ -14,10 +14,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0 # allows for tags access
 
-      # LINUX
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
+      - run: |
+          echo "---- BEFORE ----"
+          $Env:PATH
+          echo "---- DURING ----"
+          choco install make
+          echo "---- AFTER (nothing should change) ----"
+          $Env:PATH
+          echo "--------"
+          where.exe make
+        shell: powershell
