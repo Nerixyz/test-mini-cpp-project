@@ -10,41 +10,16 @@ on:
 
 jobs:
   clang-tidy:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
+    runs-on: windows-2019
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 0 # allows for tags access
-
-      # LINUX
-      - name: Install dependencies (Ubuntu)
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install cmake build-essential
-
-      - name: Build (Ubuntu)
-        run: |
-          mkdir build
-          cd build
-          cmake \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=On \
-            ..
-          make "-j$(nproc)"
-        shell: bash
-
-      - name: clang-tidy review
-        timeout-minutes: 20
-        uses: Nerixyz/clang-tidy-review@e005a6ddf5cc4884b4bcab9930df255438183fd1
-        with:
-          include: src/main.cpp
-          build_dir: build
-          config_file: ".clang-tidy"
-          split_workflow: true
-
-      - name: clang-tidy-review upload
-        uses: Nerixyz/clang-tidy-review/upload@e005a6ddf5cc4884b4bcab9930df255438183fd1
+      - run: |
+          docker pull docker pull ghcr.io/nerixyz/ci-windows-2019:1751293906
+          docker run --rm ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd /c "
+            git clone https://github.com/llvm/llvm-project --depth 1 &&
+            cd llvm-project &&
+            set MAX_PARALLEL_COMPILE_JOBS=64 &&
+            set MAX_PARALLEL_LINK_JOBS=64 &&
+            call C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat -arch=amd64 -host_arch=amd64 &&
+            bash .ci/monolithic-windows.sh \"llvm clang lld lldb\" check-lldb
+            "
