@@ -25,3 +25,5 @@ jobs:
           echo "--------"
           ls C:\ProgramData\Chocolatey\bin
         shell: powershell
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
