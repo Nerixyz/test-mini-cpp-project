@@ -22,5 +22,5 @@ jobs:
           call C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat -arch=amd64 -host_arch=amd64
           bash .ci/monolithic-windows.sh "llvm clang lld lldb" check-lldb
           '@ > run.bat
-          docker run --rm --memory=4GB -v "run.bat:C:\run.bat" ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd /C "call C:\run.bat"
+          docker run --rm --memory=4GB -v "$(pwd):C:\gh" ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd /C "call C:\gh\run.bat"
         shell: pwsh
