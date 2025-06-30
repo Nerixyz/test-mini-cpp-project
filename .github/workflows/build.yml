@@ -13,13 +13,14 @@ jobs:
     runs-on: windows-2019
 
     steps:
-      - uses: philips-software/run-windows-docker-container-action@5872d2cca32b00153665347c32e1aa780a643fdd
-        with:
-          image: ghcr.io/nerixyz/ci-windows-2019:1751293906
-          run: >-
-            git clone https://github.com/llvm/llvm-project --depth 1
-            cd llvm-project
-            set MAX_PARALLEL_COMPILE_JOBS=64
-            set MAX_PARALLEL_LINK_JOBS=64
-            call C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat -arch=amd64 -host_arch=amd64
-            bash .ci/monolithic-windows.sh "llvm clang lld lldb" check-lldb
+      - run: |
+          echo @'
+          git clone https://github.com/llvm/llvm-project --depth 1
+          cd llvm-project
+          set MAX_PARALLEL_COMPILE_JOBS=64
+          set MAX_PARALLEL_LINK_JOBS=64
+          call C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat -arch=amd64 -host_arch=amd64
+          bash .ci/monolithic-windows.sh "llvm clang lld lldb" check-lldb
+          '@ > run.bat
+          docker run --rm --memory=4GB -v "run.bat:C:\run.bat" ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd C:\run.bat
+        shell: pwsh
