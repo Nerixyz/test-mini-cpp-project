@@ -15,7 +15,7 @@ jobs:
     steps:
       - run: |
           docker pull docker pull ghcr.io/nerixyz/ci-windows-2019:1751293906
-          docker run --rm ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd /c "
+          docker run --rm -it ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd /c "
             git clone https://github.com/llvm/llvm-project --depth 1 &&
             cd llvm-project &&
             set MAX_PARALLEL_COMPILE_JOBS=64 &&
