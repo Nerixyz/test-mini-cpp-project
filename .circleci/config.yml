@@ -17,7 +17,10 @@ jobs:
           call C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat -arch=amd64 -host_arch=amd64
           bash .ci/monolithic-windows.sh "llvm;clang;lld;lldb" check-lldb
           '@ > run.bat
-          docker run --rm -it -v "$(pwd):C:\gh" ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd /C "dir C:\ && call C:\gh\run.bat"
+          ls
+          echo "$(pwd):C:\gh"
+          cat run.bat
+          docker run --rm -v "$(pwd):C:\gh" ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd /C "dir C:\ && call C:\gh\run.bat"
 workflows:
   my-workflow:
     jobs:
