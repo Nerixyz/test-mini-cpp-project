@@ -8,11 +8,10 @@ jobs:
       resource_class: windows.medium
       shell: powershell.exe -ExecutionPolicy Bypass
     steps:
-      - run: |
+      - run: >-
           echo @'
           git clone https://github.com/llvm/llvm-project --depth 1
           cd llvm-project
-          set MAX_PARALLEL_COMPILE_JOBS=""
           set MAX_PARALLEL_LINK_JOBS=4
           call C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat -arch=amd64 -host_arch=amd64
           bash .ci/monolithic-windows.sh "llvm;clang;lld;lldb" check-lldb
@@ -20,7 +19,7 @@ jobs:
           ls
           echo "$(pwd):C:\gh"
           cat run.bat
-          docker run --rm -v "$(pwd):C:\gh" ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd /C "dir C:\ && call C:\gh\run.bat"
+          docker run --rm -v "$(pwd):C:\gh" ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd /C "dir C:\gh && call C:\gh\run.bat"
 workflows:
   my-workflow:
     jobs:
