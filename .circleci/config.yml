@@ -4,12 +4,12 @@ orbs:
 jobs:
   build:
     machine:
-      image: "windows-server-2019-vs2019:2024.12.1"
+      image: "windows-server-2022-gui:2025.05.1"
       resource_class: windows.large
       shell: powershell.exe -ExecutionPolicy Bypass
     steps:
       - run: >-
-          docker run --rm -v "$(pwd):C:\gh" ghcr.io/nerixyz/ci-windows-2019:1751293906 cmd /C '
+          docker run --rm -v "$(pwd):C:\gh" ghcr.io/nerixyz/ci-windows-2019:1751702592 cmd /C '
           git clone https://github.com/Nerixyz/llvm-project --depth 1 --branch premerge-windows-make &&
           cd llvm-project && 
           set MAX_PARALLEL_LINK_JOBS=4 &&
