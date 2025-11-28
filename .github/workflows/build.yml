@@ -22,5 +22,5 @@ jobs:
           call C:\\BuildTools\\Common7\\Tools\\VsDevCmd.bat -arch=amd64 -host_arch=amd64
           bash .ci/monolithic-windows.sh "llvm;clang;lld;lldb" check-lldb
           '@ > run.bat
-          docker run --rm -v "$(pwd):C:\gh" ghcr.io/nerixyz/ci-windows-2022:1761912764 cmd /C "call C:\gh\run.bat"
+          docker run --rm -v "$(pwd):C:\gh" ghcr.io/nerixyz/ci-windows-2022:1764321542 cmd /C "call C:\gh\run.bat"
         shell: pwsh
