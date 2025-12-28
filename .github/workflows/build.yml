@@ -35,7 +35,7 @@ jobs:
           build_dir: build
           config_file: ".clang-tidy"
           split_workflow: true
-          error_action: skip
+          error_action: abort
 
       - name: clang-tidy-review upload
         uses: Nerixyz/clang-tidy-review/upload@749df926e9952f441246c895454c1d7b0fef6321
