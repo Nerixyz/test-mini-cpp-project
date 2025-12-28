@@ -1,5 +1,4 @@
----
-name: clang-tidy
+name: Test vcpkg port
 
 on:
   push:
@@ -9,42 +8,25 @@ on:
   workflow_dispatch:
 
 jobs:
-  clang-tidy:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
+  build:
+    runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: install nasm
+        run: brew install nasm
+
+      - name: Acquire vcpkg
+        uses: actions/checkout@v4
         with:
-          submodules: true
-          fetch-depth: 0 # allows for tags access
+          repository: "Microsoft/vcpkg"
+          path: vcpkg
 
-      # LINUX
-      - name: Install dependencies (Ubuntu)
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install cmake build-essential
-
-      - name: Build (Ubuntu)
-        run: |
-          mkdir build
-          cd build
-          cmake \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=On \
-            ..
-          make "-j$(nproc)"
+      - name: Bootstrap vcpkg
+        run: "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh"
         shell: bash
 
-      - name: clang-tidy review
-        timeout-minutes: 20
-        uses: Nerixyz/clang-tidy-review@e005a6ddf5cc4884b4bcab9930df255438183fd1
-        with:
-          include: src/main.cpp
-          build_dir: build
-          config_file: ".clang-tidy"
-          split_workflow: true
-
-      - name: clang-tidy-review upload
-        uses: Nerixyz/clang-tidy-review/upload@e005a6ddf5cc4884b4bcab9930df255438183fd1
+      - name: Build
+        run: ${{ github.workspace }}/vcpkg/vcpkg install dav1d
+        env:
+          VCPKG_DEFAULT_TRIPLET: x64-osx
+        shell: bash
