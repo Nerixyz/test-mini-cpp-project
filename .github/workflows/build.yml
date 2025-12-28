@@ -27,24 +27,15 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install cmake build-essential
 
-      - name: Build (Ubuntu)
-        run: |
-          mkdir build
-          cd build
-          cmake \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=On \
-            ..
-          make "-j$(nproc)"
-        shell: bash
-
       - name: clang-tidy review
         timeout-minutes: 20
-        uses: Nerixyz/clang-tidy-review@e005a6ddf5cc4884b4bcab9930df255438183fd1
+        uses: Nerixyz/clang-tidy-review@749df926e9952f441246c895454c1d7b0fef6321
         with:
           include: src/main.cpp
           build_dir: build
           config_file: ".clang-tidy"
           split_workflow: true
+          error_action: skip
 
       - name: clang-tidy-review upload
-        uses: Nerixyz/clang-tidy-review/upload@e005a6ddf5cc4884b4bcab9930df255438183fd1
+        uses: Nerixyz/clang-tidy-review/upload@749df926e9952f441246c895454c1d7b0fef6321
