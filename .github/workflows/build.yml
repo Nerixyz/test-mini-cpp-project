@@ -1,5 +1,5 @@
 ---
-name: clang-tidy
+name: Test
 
 on:
   push:
@@ -8,43 +8,64 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  TWITCH_PUBSUB_SERVER_TAG: v1.0.11
+
+concurrency:
+  group: test-macos-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  clang-tidy:
+  test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [
+            macos-latest,
+            # ubuntu-latest,
+            # windows-latest
+          ]
+      fail-fast: false
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
         with:
-          submodules: true
-          fetch-depth: 0 # allows for tags access
+          go-version: stable
 
-      # LINUX
-      - name: Install dependencies (Ubuntu)
+      - run: go get -v && go build
+
+      - if: startsWith(matrix.os, 'macos')
+        run: brew install openssl cmake boost
+      - if: startsWith(matrix.os, 'windows')
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+      - if: startsWith(matrix.os, 'windows')
+        run: choco install openssl
+      - if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt update && sudo apt install cmake build-essential libssl-dev
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install Conan
         run: |
-          sudo apt-get update
-          sudo apt-get -y install cmake build-essential
+          uv tool install conan
+          conan --version
+          conan profile detect
 
-      - name: Build (Ubuntu)
+      - name: Build
         run: |
-          mkdir build
-          cd build
-          cmake \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=On \
-            ..
-          make "-j$(nproc)"
-        shell: bash
+          mkdir build-test
+          cd build-test
+          conan install .. --output-folder=. -b missing -s build_type=RelWithDebInfo -o with_boost=${{ startsWith(matrix.os, 'macos') && 'False' || 'True' }}
+          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE="conan_toolchain.cmake" ..
+          cmake --build .
 
-      - name: clang-tidy review
-        timeout-minutes: 20
-        uses: Nerixyz/clang-tidy-review@e005a6ddf5cc4884b4bcab9930df255438183fd1
-        with:
-          include: src/main.cpp
-          build_dir: build
-          config_file: ".clang-tidy"
-          split_workflow: true
-
-      - name: clang-tidy-review upload
-        uses: Nerixyz/clang-tidy-review/upload@e005a6ddf5cc4884b4bcab9930df255438183fd1
+      - name: Test
+        timeout-minutes: 10
+        run: |
+          ./test-mini-cpp-project 127.0.0.1:9050 &
+          cd build-test
+          sleep 3
+          ctest -V --repeat until-fail:1000 ${{ startsWith(matrix.os, 'windows') && '-C RelWithDebInfo' || '' }}
