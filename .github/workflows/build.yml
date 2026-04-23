@@ -29,7 +29,7 @@ jobs:
 
       - name: clang-tidy review
         timeout-minutes: 20
-        uses: Nerixyz/clang-tidy-review@749df926e9952f441246c895454c1d7b0fef6321
+        uses: Nerixyz/clang-tidy-review@78056db6e38c370c0d1c271c22e7d5247f39b64a
         with:
           include: src/main.cpp
           build_dir: build
@@ -38,4 +38,4 @@ jobs:
           # error_action: abort
 
       - name: clang-tidy-review upload
-        uses: Nerixyz/clang-tidy-review/upload@749df926e9952f441246c895454c1d7b0fef6321
+        uses: Nerixyz/clang-tidy-review/upload@78056db6e38c370c0d1c271c22e7d5247f39b64a
